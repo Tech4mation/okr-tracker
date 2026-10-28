@@ -283,6 +283,23 @@ button.stat .l,button.stat .s{color:var(--fg)}
 .subrow .subbar{flex:0 0 38%;min-width:60px}
 .list>.subrow:first-child{border-top:0;padding-top:12px}
 .list>.subrow:last-child{padding-bottom:12px}
+.diff{display:flex;flex-direction:column;gap:2px;margin-top:4px}.diff s{color:var(--muted)}
+.seg{display:inline-flex;gap:4px;padding:4px;background:var(--surface2);border-radius:12px;align-self:flex-start;max-width:100%}
+.seg button{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 16px;border:0;border-radius:9px;background:none;color:var(--muted);font:600 14px var(--sans);cursor:pointer}
+.seg button:hover{color:var(--fg)}
+.seg button[aria-selected="true"]{background:var(--bg);color:var(--fg);box-shadow:0 1px 3px rgba(20,20,60,.12)}
+.seg-n{min-width:22px;padding:1px 7px;border-radius:999px;background:var(--ind-s);color:var(--ind);font:600 12px var(--sans);text-align:center}
+.namelink{border:0;background:none;padding:0;font:inherit;color:inherit;cursor:pointer;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}
+.namelink:hover{text-decoration-color:currentColor}
+.prow{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:flex-start;justify-content:space-between}
+.pcol{flex:0 0 220px;display:flex;flex-direction:column;gap:4px}
+.pcol .prog{gap:10px}
+ul.flags{margin:6px 0 0;padding-left:18px;color:var(--muted);font-size:13px;display:flex;flex-direction:column;gap:2px}
+@media(max-width:620px){.pcol{flex-basis:100%}}
+ul.org,ul.org ul{list-style:none;margin:0;padding:0}
+ul.org ul{margin-left:14px;padding-left:16px;border-left:2px solid var(--line)}
+ul.org li{padding:4px 0}
+.orgc{padding:8px 10px;border-radius:var(--r-sm);background:var(--surface2)}
 </style></head>
 <body>
 <div class="wrap" id="root"><p class="empty">Loading…</p></div>
@@ -291,7 +308,7 @@ button.stat .l,button.stat .s{color:var(--fg)}
 
 const ROLES = {ceo:'CEO', hr:'HR', manager:'Manager', member:'Member'};
 const SSTAT = ['Not done','In progress','Done'];
-const COLS = ['okrs','people','stand','wnotes','logs'];
+const COLS = ['okrs','people','stand','wnotes','logs','welfare','daily','leave','cycles','reviews','roles','cands','ones','fb','docs'];
 const S = {signups: []}; COLS.forEach(c => S[c] = []);
 const loaded = new Set();
 const $ = s => document.querySelector(s);
@@ -300,14 +317,19 @@ const iso = d => d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') 
 const mondayOf = d => { const x = new Date(d); x.setHours(0,0,0,0); x.setDate(x.getDate() - (x.getDay()+6)%7); return x; };
 const parseIso = s => { const [y,m,d] = s.split('-').map(Number); return new Date(y, m-1, d); };
 const curWeek = () => iso(mondayOf(new Date()));
+const today = () => iso(new Date());
+const curDay = () => day || today();
+const shiftDay = (d, n) => { const x = parseIso(d); x.setDate(x.getDate() + n); return iso(x); };
+const dayLabel = d => { const x = parseIso(d); return d === today() ? 'Today' : d === shiftDay(today(), -1) ? 'Yesterday' : x.toLocaleDateString(undefined, {weekday: 'long', day: 'numeric', month: 'short'}); };
+const workdaysBack = n => { const out = []; let d = today(); while (out.length < n) { const wd = parseIso(d).getDay(); if (wd !== 0 && wd !== 6) out.push(d); d = shiftDay(d, -1); } return out; };
 const fmt = n => String(Math.round(n*10)/10);
 const r0 = n => Math.round(n);
 
 let uid = null, pf = {q: '', team: '', role: ''};
-const FF0 = () => ({lead: {q: '', team: ''}, okrs: {q: '', team: '', st: ''}, appr: {q: '', team: ''}, stand: {q: '', st: ''}, review: {q: '', st: ''}});
+const FF0 = () => ({hire: {q: '', team: ''}, rev: {q: '', team: '', v: ''}, daily: {q: '', team: '', v: ''}, lead: {q: '', team: ''}, perf: {q: '', team: ''}, welf: {q: '', team: ''}, okrs: {q: '', team: '', st: '', mo: ''}, appr: {q: '', team: ''}, stand: {q: '', st: ''}, review: {q: '', st: ''}});
 let ff = FF0();
 let wk = curWeek(), tab = 'dash', viewAs = null, confirmDel = null;
-let draft = {owner:null, obj:'', krs:['','']}, showForm = false, navOpen = false;
+let draft = {owner:null, obj:'', krs:['',''], ms:[null,null]}, showForm = false, navOpen = false;
 
 
 // ---------- identity & visibility ----------
@@ -320,7 +342,13 @@ const isGroup = p => p.role === 'ceo' || p.role === 'hr';
 const where = p => [p.sub, p.team].filter(Boolean).join(' · ') || 'Group';
 const ownerLabel = o => o.owner === 'Company' ? (o.sub ? o.sub : 'Whole company') : o.owner;
 const cv = (o, e) => o.owner !== 'Company' || (isGroup(e) ? (!subFilter || !o.sub || o.sub === subFilter) : (!o.sub || o.sub === e.sub));
-const teamNames = p => { const s = new Set([p.name]); if (p.team) S.people.forEach(x => { if (x.team === p.team && x.sub === p.sub) s.add(x.name); }); return s; };
+const mgrOf = p => p && p.mgr ? S.people.find(x => x.id === p.mgr) : null;
+const reportsTo = (p, m) => { let c = p, n = 0; while (c && n++ < 20) { if (c.mgr === m.id) return true; c = mgrOf(c); } return false; };
+const directs = p => S.people.filter(x => x.mgr === p.id).sort((a, b) => a.name.localeCompare(b.name));
+// A team is the unit around someone: a manager's own subtree, or for everyone
+// else the subtree of whoever they report to, so peers still see each other.
+const unitRoot = p => directs(p).length ? p : (mgrOf(p) || p);
+const teamNames = p => { const r = unitRoot(p), s = new Set([p.name, r.name]); S.people.forEach(x => { if (reportsTo(x, r)) s.add(x.name); }); return s; };
 function scope(p) { return isGroup(p) ? new Set([...(subFilter ? [] : [p.name]), ...S.people.filter(x => !subFilter || x.sub === subFilter).map(x => x.name)]) : p.role === 'manager' ? teamNames(p) : new Set([p.name]); }
 const lbScope = p => isGroup(p) ? new Set(S.people.filter(x => !subFilter || x.sub === subFilter).map(x => x.name)) : teamNames(p);
 const person = n => S.people.find(x => x.name === n);
@@ -331,15 +359,126 @@ const okrPct = o => o.krs?.length ? o.krs.filter(k => k.pct === 100).length / o.
 const personOkrs = n => S.okrs.filter(o => o.owner === n);
 const personPct = n => { const a = personOkrs(n); return a.length ? a.reduce((s,o) => s + okrPct(o), 0) / a.length : 0; };
 const companyPct = e => { const a = S.okrs.filter(o => o.owner === 'Company' && cv(o, e)); return a.length ? a.reduce((s,o) => s + okrPct(o), 0) / a.length : null; };
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONFULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const curM = () => new Date().getMonth(), curY = () => new Date().getFullYear();
+const isPersonal = o => o.owner !== 'Company';
+const overdue = (o, k) => isPersonal(o) && k.month != null && k.pct !== 100 && (o.year < curY() || (o.year === curY() && k.month < curM()));
+const monOpts = sel => MONFULL.map((m, i) => `<option value="${i}"${sel === i ? ' selected' : ''}>${m}</option>`).join('');
+const dateShort = t => new Date(t).toLocaleDateString(undefined, {day: 'numeric', month: 'short'});
 const krState = k => k.pct === 100 ? 'approved' : k.req ? 'awaiting' : 'open';
 
+// ---------- workforce analytics ----------
+const WEEK = 7 * 86400000;
+const pastWeeks = n => Array.from({length: n}, (_, i) => { const d = parseIso(curWeek()); d.setDate(d.getDate() - 7 * i); return iso(d); });
+const expectedPace = () => (curM() + 1) / 12 * 100;
+const standupRate = n => { const ws = pastWeeks(4); return ws.filter(w => S.stand.some(x => x.owner === n && x.week === w)).length / ws.length * 100; };
+const overdueFor = n => S.okrs.filter(o => o.owner === n).reduce((t, o) => t + o.krs.filter(k => overdue(o, k)).length, 0);
+const approvedFor = n => S.okrs.filter(o => o.owner === n).reduce((t, o) => t + o.krs.filter(k => k.pct === 100).length, 0);
+const krCount = n => S.okrs.filter(o => o.owner === n).reduce((t, o) => t + o.krs.length, 0);
+const lastApproval = n => S.okrs.filter(o => o.owner === n).reduce((t, o) => Math.max(t, ...o.krs.map(k => k.apAt || 0)), 0);
+const weeksSinceApproval = n => { const t = lastApproval(n); return t ? Math.floor((Date.now() - t) / WEEK) : 99; };
+const STEM = t => String(t).toLowerCase().match(/[a-z]{5,}/g) || [];
+function jdCoverage(n) {
+  const p = person(n); if (!p || !p.jd) return [];
+  const mine = S.okrs.filter(o => o.owner === n);
+  return p.jd.map(d => { const words = new Set(STEM(d).map(w => w.replace(/s$/, '')));
+    const hit = mine.find(o => [o.objective, ...o.krs.map(k => k.title)].some(t => STEM(t).some(w => words.has(w.replace(/s$/, '')))));
+    return {d, okr: hit ? hit.objective : null}; });
+}
+function risk(n) {
+  const p = person(n); if (!p || isGroup(p)) return null;
+  const pct = personPct(n), exp = expectedPace(), sr = standupRate(n), od = overdueFor(n), wk = weeksSinceApproval(n);
+  const flags = [];
+  if (!krCount(n)) flags.push('No OKRs set');
+  else if (pct + 0.5 < exp * 0.6) flags.push(`${r0(pct)}% done against ${r0(exp)}% expected by now`);
+  if (sr < 50) flags.push(`Logged a standup in ${r0(sr / 25)} of the last 4 weeks`);
+  if (od) flags.push(plural(od, 'overdue key result', 'overdue key results'));
+  if (wk >= 4) flags.push(wk === 99 ? 'Nothing approved yet' : `Nothing approved for ${wk} weeks`);
+  return {n, p, pct, exp, sr, od, flags, ix: exp ? pct / exp * 100 : 0, band: flags.length >= 2 ? 'risk' : flags.length ? 'watch' : 'ok'};
+}
+const perfIndex = n => { const exp = expectedPace(); return exp ? personPct(n) / exp * 100 : 0; };
+const BAND = {ok: ['On track', 'good'], watch: ['Watch', 'warn'], risk: ['At risk', 'bad']};
+// Where each subsidiary's work actually lands. Wired to nothing in this demo.
+const SOURCES = {NativeTalk: 'NativeTalk CRM', Connect: 'Connect billing', 'Cyber Villa': 'Cyber Villa invoice portal'};
+// Simulated validation. Figures are derived from the demo data, not from any real mailbox, CRM or invoice portal.
+const aiHash = t => [...String(t)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
+function aiCheck(owner, title) {
+  const h = aiHash(owner + '|' + title);
+  const em = h % 5, doc = (h >> 3) % 4, crm = (h >> 6) % 3, n = em + doc + crm;
+  return {em, doc, crm, n, v: n >= 5 ? 'verified' : n >= 2 ? 'partial' : 'none'};
+}
+function validate(owner, text, n, forced) {
+  const h = aiHash(owner + '|' + text), p = person(owner);
+  const src = [[h % 9, 'email' + (h % 9 === 1 ? '' : 's')], [(h >>> 3) % 6, 'customer message' + ((h >>> 3) % 6 === 1 ? '' : 's')], [(h >>> 6) % 4, 'in ' + (SOURCES[p?.sub] || 'billing records')], [(h >>> 9) % 5 + 1, 'sign-in' + ((h >>> 9) % 5 + 1 === 1 ? '' : 's')]];
+  if (n == null) { const tot = src.reduce((a, b) => a + b[0], 0); return {src, tot, v: tot >= 5 ? 'verified' : tot >= 2 ? 'partial' : 'none'}; }
+  // Most reported work checks out. The spread is weighted so a mismatch means something.
+  const r = (h >>> 12) % 100;
+  const mult = r < 76 ? 0.92 + (r % 9) / 50 : r < 93 ? 0.55 + (r % 20) / 100 : 0.15 + (r % 30) / 100;
+  const found = forced != null ? forced : Math.round(n * mult);
+  const ratio = n ? found / n : 1;
+  return {src, n, found, ratio, v: ratio >= 0.9 ? 'match' : ratio >= 0.5 ? 'short' : 'gap'};
+}
+const VV = {match: ['Matches the record', 'good'], short: ['Below what was reported', 'warn'], gap: ['Not supported by the record', 'bad']};
+const srcLine = c => c.src.map(([v, k]) => `${v} ${k}`).join(' · ');
+const AIV = {verified: ['Evidence found', 'good'], partial: ['Thin evidence', 'warn'], none: ['No evidence found', 'bad']};
+const aiChip = c => chip('AI: ' + AIV[c.v][0], AIV[c.v][1]);
+const aiDetail = c => `${c.em} email${c.em === 1 ? '' : 's'}, ${c.doc} document${c.doc === 1 ? '' : 's'}, ${c.crm} customer record${c.crm === 1 ? '' : 's'}`;
+// ---------- welfare ----------
+const STAGES = ['Applied', 'Screening', 'Interview', 'Offer', 'Hired', 'Rejected'];
+const STONE = {Applied: '', Screening: 'acc', Interview: 'warn', Offer: 'vio', Hired: 'good', Rejected: 'bad'};
+const candsFor = r => S.cands.filter(c => c.role === r.id);
+const openRoles = e => S.roles.filter(r => (!subFilter || r.sub === subFilter) && (isGroup(e) || r.hm === e.name));
+const DOCST = {Signed: 'good', 'Awaiting signature': 'warn', 'On file': ''};
+const docsFor = n => S.docs.filter(d => d.owner === n).sort((a, b) => b.at - a.at);
+const onesFor = (a, b) => S.ones.filter(x => (x.owner === a && x.with === b) || (x.owner === b && x.with === a)).sort((x, y) => y.at - x.at);
+const fbFor = n => S.fb.filter(x => x.to === n).sort((a, b) => b.at - a.at);
+const FBTONE = {Praise: 'good', Improvement: 'warn'};
+const enpsOf = n => { const w = S.welfare.filter(x => x.owner === n && x.enps != null).sort((a, b) => b.ts - a.ts); return w.length ? w[0].enps : null; };
+function enpsScore(names) {
+  const v = names.map(enpsOf).filter(x => x != null); if (!v.length) return null;
+  const pro = v.filter(x => x >= 9).length, det = v.filter(x => x <= 6).length;
+  return {score: Math.round((pro - det) / v.length * 100), n: v.length, pro, det};
+}
+const RATINGS = ['', 'Did not meet', 'Partly met', 'Met expectations', 'Exceeded', 'Outstanding'];
+const liveCycle = () => S.cycles.find(c => c.status === 'Open') || null;
+const revOf = (cid, n) => S.reviews.find(r => r.cycle === cid && r.owner === n);
+const revStage = r => !r ? 'none' : r.mgr ? 'done' : r.self ? 'self' : 'none';
+const REVST = {none: ['Not started', ''], self: ['Self-review in', 'warn'], done: ['Complete', 'good']};
+const revDue = c => c ? Math.ceil((parseIso(c.due) - Date.now()) / 86400000) : 0;
+const ALLOWANCE = 25;
+const money = n => '\u20a6' + Number(n).toLocaleString('en-US');
+const leaveFor = n => S.leave.filter(x => x.owner === n).sort((a, b) => b.from.localeCompare(a.from));
+const leaveTaken = n => leaveFor(n).filter(x => x.status === 'Approved' && x.from.slice(0, 4) === String(curY())).reduce((t, x) => t + x.days, 0);
+const leaveBal = n => ALLOWANCE - leaveTaken(n);
+const leavePending = e => S.leave.filter(x => x.status === 'Requested' && lbScope(e).has(x.owner) && x.owner !== e.name);
+const canSeePay = (e, p) => isGroup(e) || p.name === e.name;
+const dueReview = p => p.review && new Date(p.review) - Date.now() < 45 * 86400000;
+const WLOAD = ['', 'Very light', 'Light', 'Steady', 'Heavy', 'Too much'];
+const MOOD = ['', 'Struggling', 'Low', 'Okay', 'Good', 'Great'];
+const welfareOf = (n, w) => S.welfare.find(x => x.owner === n && x.week === w);
+function welfareFlag(n) {
+  const ws = pastWeeks(3).map(w => welfareOf(n, w)).filter(Boolean);
+  if (ws.length >= 2 && ws.slice(0, 2).every(x => x.workload >= 4)) return 'Heavy workload two weeks running';
+  if (ws[0] && ws[0].mood <= 2) return 'Low wellbeing score this week';
+  if (!ws.length) return 'No check-in in the last 3 weeks';
+  return '';
+}
 function canApprove(e, o) {
   if (!e || o.owner === 'Company') return false;
   if (e.role === 'ceo') return true;
   if (e.role !== 'manager') return false;
   const p = person(o.owner);
-  return !!(p && p.role === 'member' && p.team && p.team === e.team && p.sub === e.sub && p.name !== e.name);
+  return !!(p && p.name !== e.name && p.mgr === e.id);
 }
+const revsFor = e => S.okrs.filter(o => o.rev && canApprove(e, o) && (e.role !== 'ceo' || !subFilter || person(o.owner)?.sub === subFilter));
+const approverOf = o => { const m = mgrOf(person(o.owner)); return m ? m.name : 'the CEO'; };
+const applyRev = (o, r) => { o.krs = r.krs.map(k => k.src != null ? {...o.krs[k.src], title: k.title, month: k.month} : {title: k.title, pct: 0, req: false, reqAt: 0, apBy: '', month: k.month}); o.objective = r.objective; };
+function submitRev(o, rev, e) {
+  if (e.role === 'ceo' || canApprove(e, o)) { applyRev(o, rev); toast('Saved.'); }
+  else { o.rev = {...rev, by: e.name, at: Date.now()}; toast('Sent to ' + approverOf(o) + ' for approval.'); }
+}
+let editing = null, okrTab = null, dossier = null, perfTab = 'all', day = null, dirView = 'table', openRev = null, openRole = null, hireTab = 'open';
 function pendingFor(e) {
   const out = [];
   S.okrs.forEach(o => (o.krs || []).forEach((k, i) => { if (k.req && k.pct !== 100 && canApprove(e, o) && (e.role !== 'ceo' || !subFilter || person(o.owner)?.sub === subFilter)) out.push({o, k, i}); }));
@@ -348,6 +487,20 @@ function pendingFor(e) {
 
 // ---------- data (demo data held in memory, never saved) ----------
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id' + Date.now().toString(36) + Math.random().toString(36).slice(2));
+const JOBS = {
+  'Ada Okafor': {contract: 'Permanent', salary: 42000000, notice: '3 months', review: '2027-02-01', title: 'Chief Executive Officer', joined: '2019-02-04', jd: ['Set group strategy and annual direction', 'Chair the Monday priorities call', 'Approve subsidiary-level goals']},
+  'Fay Lund': {contract: 'Permanent', salary: 18000000, notice: '2 months', review: '2026-12-01', title: 'Head of People', joined: '2021-06-14', jd: ['Run hiring and onboarding across the group', 'Maintain people records and welfare checks', 'Report on headcount and retention']},
+  'Ben Carter': {contract: 'Permanent', salary: 16800000, notice: '2 months', review: '2026-11-15', title: 'Growth Manager', joined: '2021-03-08', jd: ['Run a predictable weekly growth rhythm', 'Hire and develop the growth team', 'Own the acquisition funnel targets']},
+  'Cy Mensah': {contract: 'Permanent', salary: 9600000, notice: '1 month', review: '2026-11-30', title: 'Content Marketer', joined: '2023-01-16', jd: ['Publish long-form guides and articles', 'Grow the newsletter audience', 'Support referral campaign launches', 'Report on content performance monthly']},
+  'Dee Park': {contract: 'Permanent', salary: 10200000, notice: '1 month', review: '2026-12-15', title: 'Onboarding Specialist', joined: '2022-09-05', jd: ['Make customer onboarding faster', 'Run customer interviews each quarter', 'Maintain the guided tour content']},
+  'Zoe Hart': {contract: 'Fixed term', salary: 8400000, notice: '1 month', review: '2026-11-10', title: 'Performance Marketer', joined: '2024-04-02', jd: ['Manage paid acquisition channels', 'Cut cost per signup quarter on quarter', 'Report weekly on advertising spend']},
+  'Maya Singh': {contract: 'Permanent', salary: 17400000, notice: '2 months', review: '2026-11-20', title: 'Product Manager', joined: '2020-10-12', jd: ['Own the product roadmap', 'Interview customers and feed insight to design', 'Release planning features on schedule']},
+  'Eli Ruiz': {contract: 'Permanent', salary: 10800000, notice: '1 month', review: '2027-01-10', title: 'Product Analyst', joined: '2023-05-22', jd: ['Document and monitor the activation funnel', 'Run growth experiments', 'Maintain the analytics dashboards']},
+  'Noor Aziz': {contract: 'Fixed term', salary: 9000000, notice: '1 month', review: '2026-11-05', title: 'Product Designer', joined: '2024-02-19', jd: ['Design self-serve reporting features', 'Train customers on new releases', 'Keep the design system current']},
+  'Leo Vance': {contract: 'Permanent', salary: 19200000, notice: '3 months', review: '2026-12-20', title: 'Engineering Manager', joined: '2020-07-06', jd: ['Keep the platform fast and reliable', 'Lead incident response', 'Grow and support the engineering team']},
+  'Ivy Chen': {contract: 'Permanent', salary: 13200000, notice: '1 month', review: '2027-01-20', title: 'Frontend Engineer', joined: '2022-11-14', jd: ['Modernise the web client', 'Raise automated test coverage', 'Review frontend pull requests']},
+  'Sam Brooks': {contract: 'Permanent', salary: 14400000, notice: '1 month', review: '2026-12-05', title: 'Security Engineer', joined: '2023-08-07', jd: ['Harden authentication and access control', 'Complete external security audits', 'Run quarterly penetration tests']}
+};
 function buildMock() {
   const wk0 = mondayOf(new Date());
   const weekIso = n => { const d = new Date(wk0); d.setDate(d.getDate() - 7 * n); return iso(d); };
@@ -356,12 +509,12 @@ function buildMock() {
     ['Ben Carter','manager','Growth','NativeTalk'], ['Cy Mensah','member','Growth','NativeTalk'], ['Dee Park','member','Growth','NativeTalk'], ['Zoe Hart','member','Growth','NativeTalk'],
     ['Maya Singh','manager','Product','Connect'], ['Eli Ruiz','member','Product','Connect'], ['Noor Aziz','member','Product','Connect'],
     ['Leo Vance','manager','Engineering','Cyber Villa'], ['Ivy Chen','member','Engineering','Cyber Villa'], ['Sam Brooks','member','Engineering','Cyber Villa']
-  ].map(([name, role, team, sub], i) => ({id: 'p' + i, name, role, team, sub, email: name.toLowerCase().replace(/ /g, '.') + '@' + ({NativeTalk: 'nativetalk', Connect: 'connect', 'Cyber Villa': 'cybervilla'}[sub] || 'group') + '.example', uid: ''}));
-  const approverOf = owner => {
-    const p = people.find(x => x.name === owner);
-    if (!p || p.role !== 'member') return 'Ada Okafor';
-    return (people.find(x => x.role === 'manager' && x.team === p.team) || {name: 'Ada Okafor'}).name;
-  };
+  ].map(([name, role, team, sub], i) => ({id: 'p' + i, name, role, team, sub, ...JOBS[name], email: name.toLowerCase().replace(/ /g, '.') + '@' + ({NativeTalk: 'nativetalk', Connect: 'connect', 'Cyber Villa': 'cybervilla'}[sub] || 'group') + '.example', uid: ''}));
+  const ceo = people.find(x => x.role === 'ceo');
+  people.forEach(p => { if (p.role === 'ceo') return;
+    const m = p.role === 'member' ? people.find(x => x.role === 'manager' && x.team === p.team && x.sub === p.sub) : null;
+    p.mgr = (m || ceo).id; });
+  const approverOf = owner => { const p = people.find(x => x.name === owner); const m = p && people.find(x => x.id === p.mgr); return m ? m.name : 'Ada Okafor'; };
   const defs = [
     ['Company', 'Become the default way the group tracks goals', [['Reach 5,000 weekly active people','a',1], ['Launch in three new markets','a',2], ['Ship the mobile app','o'], ['Hit 95% customer retention','o']]],
     ['Company', 'Build a group people love working at', [['Reach an eNPS of 50','a',1], ['Publish the career framework','a',0], ['Hire 12 engineers','o']]],
@@ -370,18 +523,20 @@ function buildMock() {
     ['Company', 'Make Cyber Villa the trusted security partner', [['Win 15 enterprise accounts','a',1], ['Publish the annual threat report','a',0], ['Reach 24-hour incident response','o']], 'Cyber Villa'],
     ['Cy Mensah', 'Double organic sign-ups', [['Publish 24 long-form guides','a',2], ['Grow the newsletter to 20,000','r'], ['Cut sign-up drop-off to 30%','o']]],
     ['Cy Mensah', 'Build a referral programme', [['Launch the referral beta','a',0], ['Reach 500 referred sign-ups','o']]],
-    ['Dee Park', 'Make onboarding feel effortless', [['Cut time to first OKR to 5 minutes','a',1], ['Add a guided tour','a',0], ['Reach 90% setup completion','o'], ['Run 50 customer interviews','o']]],
+    ['Dee Park', 'Make onboarding feel effortless', [['Cut time to first OKR to 5 minutes','a',1], ['Add a guided tour','a',0], ['Reach 90% setup completion','a',2], ['Run 50 customer interviews','o']]],
     ['Zoe Hart', 'Own paid acquisition', [['Cut cost per sign-up by 20%','a',1], ['Launch three new channels','r'], ['Reach 60% return on ad spend','o']]],
-    ['Ben Carter', 'Run a predictable growth team', [['Hold a metrics review every Monday','a',2], ['Hire two growth analysts','o']]],
-    ['Maya Singh', 'Ship a planning experience customers rave about', [['Release quarterly planning','a',1], ['Interview 40 customers','a',0], ['Reach an NPS of 45','o']]],
-    ['Eli Ruiz', 'Raise activation', [['Redesign the first-run checklist','a',0], ['Document the funnel','a',2], ['Lift activation to 55%','r'], ['Run 10 experiments','o']]],
+    ['Ben Carter', 'Run a predictable growth team', [['Hold a metrics review every Monday','a',2], ['Publish the team operating rhythm','a',1], ['Hire two growth analysts','o']]],
+    ['Maya Singh', 'Ship a planning experience customers rave about', [['Release quarterly planning','a',1], ['Interview 40 customers','a',0], ['Reach an NPS of 45','a',2]]],
+    ['Eli Ruiz', 'Raise activation', [['Redesign the first-run checklist','a',0], ['Document the funnel','a',2], ['Lift activation to 55%','a',1], ['Run 10 experiments','o']]],
     ['Noor Aziz', 'Make insights self-serve', [['Launch the dashboard builder','o'], ['Train 30 customers','r']]],
     ['Leo Vance', 'Keep the platform fast and reliable', [['Reach 99.95% uptime','a',2], ['Zero critical incidents this quarter','a',1], ['Cut p95 latency to 300 ms','o']]],
     ['Ivy Chen', 'Modernise the web client', [['Move to the new design system','a',1], ['Cut bundle size by 30%','r'], ['Reach 90% test coverage','o']]],
-    ['Sam Brooks', 'Harden security', [['Roll out single sign-on','a',0], ['Complete the SOC 2 audit','o']]]
+    ['Sam Brooks', 'Harden security', [['Roll out single sign-on','a',0], ['Close every critical vulnerability','a',2], ['Complete the SOC 2 audit','o']]]
   ];
   const okrs = defs.map(([owner, objective, krs, sub], i) => ({id: 'o' + i, owner, sub: sub || '', year: new Date().getFullYear(), objective,
-    krs: krs.map(([title, st, w]) => ({title, pct: st === 'a' ? 100 : 0, req: st === 'r', reqAt: st === 'r' ? Date.now() - 86400000 : 0, apBy: st === 'a' ? approverOf(owner) : '', w}))}));
+    krs: krs.map(([title, st, w], j) => { const M = new Date().getMonth(), personal = owner !== 'Company';
+      const month = !personal ? undefined : st === 'a' ? Math.max(0, M - 1 - (w || 0)) : st === 'r' ? M : (owner === 'Cy Mensah' || title === 'Run 10 experiments') ? Math.max(0, M - 1) : Math.min(11, M + (j % 3));
+      return {title, pct: st === 'a' ? 100 : 0, req: st === 'r', reqAt: st === 'r' ? Date.now() - 86400000 : 0, apBy: st === 'a' ? approverOf(owner) : '', apAt: st === 'a' ? Date.now() - (w + 0.5) * 7 * 86400000 : 0, month, w}; })}));
   const logs = [];
   okrs.forEach(o => { const n = okrs.filter(x => x.owner === o.owner).length;
     o.krs.forEach(k => { if (k.pct === 100) logs.push({id: uuid(), owner: o.owner, week: weekIso(k.w), delta: 100 / o.krs.length / n, okr: o.id, ts: 1}); delete k.w; }); });
@@ -400,14 +555,118 @@ function buildMock() {
     ...st('Leo Vance', weekIso(0), [['Review incident postmortems','Done'], ['Plan the latency work','In progress']]),
     ...st('Cy Mensah', weekIso(1), [['Publish guide on quarterly planning','Done'], ['Set up referral tracking','Done']]),
     ...st('Dee Park', weekIso(1), [['Recruit interview participants','Done'], ['Map the current onboarding steps','Done']]),
-    ...st('Eli Ruiz', weekIso(1), [['Document the signup funnel','Done'], ['Define the activation metric','Done']])
+    ...st('Eli Ruiz', weekIso(1), [['Document the signup funnel','Done'], ['Define the activation metric','Done']]),
+    ...st('Ben Carter', weekIso(1), [['Run the weekly metrics review','Done'], ['Screen analyst applications','Done']]),
+    ...st('Maya Singh', weekIso(1), [['Write the quarterly planning spec','Done'], ['Run three customer calls','Done']]),
+    ...st('Leo Vance', weekIso(1), [['Close out the uptime work','Done'], ['Run the incident drill','Done']]),
+    ...st('Ivy Chen', weekIso(1), [['Migrate the billing screens','Done'], ['Set up visual regression tests','In progress']]),
+    ...st('Sam Brooks', weekIso(1), [['Finish the SSO pilot','Done']]),
+    ...st('Cy Mensah', weekIso(2), [['Outline the referral guide','Done'], ['Clear the newsletter backlog','Done']]),
+    ...st('Dee Park', weekIso(2), [['Ship the guided tour copy','Done']]),
+    ...st('Ben Carter', weekIso(2), [['Run the weekly metrics review','Done']]),
+    ...st('Maya Singh', weekIso(2), [['Review the planning prototype','Done'], ['Sync with engineering on scope','Done']]),
+    ...st('Leo Vance', weekIso(2), [['Review latency profiling','Done']]),
+    ...st('Eli Ruiz', weekIso(2), [['Run the checklist experiment','Done']]),
+    ...st('Ivy Chen', weekIso(2), [['Audit the design system gaps','Done']]),
+    ...st('Sam Brooks', weekIso(2), [['Draft the audit evidence pack','Done']])
   ];
   const wnotes = [
     {id: weekIso(0) + '_p3', week: weekIso(0), owner: 'Cy Mensah', text: 'Blocked on design for the referral page until Wednesday. The quarterly planning guide passed 2,000 reads. Also helped Dee with interview scheduling, which was outside my key results.', ts: 1},
     {id: weekIso(0) + '_p4', week: weekIso(0), owner: 'Dee Park', text: 'Cut onboarding from nine steps to five. Need two more interview participants for the usability sessions.', ts: 2},
     {id: weekIso(0) + '_p2', week: weekIso(0), owner: 'Ben Carter', text: 'Team is on track. Two strong analyst candidates this week. Feedback for the team: great energy in Monday\'s call.', ts: 3}
   ];
-  return {people, okrs, logs, stand, wnotes};
+  const wf = (owner, n, workload, mood, note) => ({id: uuid(), week: weekIso(n), owner, workload, mood, note, ts: Date.now() - n * 7 * 86400000});
+  const welfare = [
+    wf('Cy Mensah', 0, 4, 3, 'Heavy week. Two launches landed together.'),
+    wf('Cy Mensah', 1, 4, 3, 'Still catching up after the campaign.'),
+    wf('Cy Mensah', 2, 5, 2, 'Covering for the referral launch on top of my own work.'),
+    wf('Dee Park', 0, 3, 4, 'Good week, interviews went well.'),
+    wf('Dee Park', 1, 2, 5, ''),
+    wf('Zoe Hart', 0, 2, 4, 'Settling into the new channel tests.'),
+    wf('Ben Carter', 0, 3, 4, 'Hiring is taking time but the team is steady.'),
+    wf('Eli Ruiz', 0, 4, 3, 'Experiment backlog is growing.'),
+    wf('Eli Ruiz', 1, 4, 2, 'Could use another analyst.'),
+    wf('Maya Singh', 0, 3, 5, ''),
+    wf('Ivy Chen', 0, 2, 4, ''),
+    wf('Leo Vance', 0, 3, 3, 'Two incidents this week.'),
+    wf('Sam Brooks', 0, 3, 4, '')
+  ];
+  const days = workdaysBack(5);
+  const dy = (owner, di, text, n, unit, found) => ({id: uuid(), day: days[di], owner, text, n: n ?? null, unit: unit || '', found: found ?? null, ts: Date.now() - di * 86400000});
+  const daily = [
+    dy('Cy Mensah', 0, 'Drafted the referral guide', 2, 'sections'), dy('Cy Mensah', 0, 'Replied to newsletter feedback', 14, 'replies'),
+    dy('Cy Mensah', 1, 'Published the goal-setting guide', 1, 'guide'), dy('Cy Mensah', 2, 'Outlined three campaign emails', 3, 'emails'),
+    dy('Dee Park', 0, 'Ran onboarding interviews', 4, 'interviews'), dy('Dee Park', 1, 'Rewrote the guided tour copy', null, ''),
+    dy('Dee Park', 2, 'Reviewed setup drop-off data', null, ''),
+    dy('Zoe Hart', 0, 'Engaged prospects on the new channel', 25, 'prospects', 6), dy('Zoe Hart', 1, 'Closed deals from the ad campaign', 10, 'deals', 1),
+    dy('Ben Carter', 0, 'Interviewed analyst candidates', 3, 'interviews'), dy('Ben Carter', 1, 'Ran the metrics review', 1, 'review'),
+    dy('Eli Ruiz', 0, 'Shipped the checklist experiment', 1, 'experiment'), dy('Eli Ruiz', 2, 'Analysed activation funnel steps', 6, 'steps'),
+    dy('Maya Singh', 0, 'Customer calls on planning', 5, 'calls'), dy('Maya Singh', 1, 'Scoped the release with engineering', null, ''),
+    dy('Ivy Chen', 0, 'Migrated settings screens', 7, 'screens'), dy('Ivy Chen', 2, 'Profiled the bundle', null, ''),
+    dy('Sam Brooks', 0, 'Collected audit evidence', 9, 'items'),
+    dy('Leo Vance', 0, 'Reviewed incident postmortems', 2, 'postmortems'), dy('Leo Vance', 1, 'Planned the latency work', null, '')
+  ];
+  const yr = new Date().getFullYear();
+  const lv = (owner, from, to, days, type, status, apBy) => ({id: uuid(), owner, from, to, days, type, status, by: owner, at: Date.now() - days * 86400000, apBy: apBy || ''});
+  const leave = [
+    lv('Cy Mensah', yr + '-03-09', yr + '-03-13', 5, 'Annual leave', 'Approved', 'Ben Carter'),
+    lv('Cy Mensah', yr + '-07-21', yr + '-07-25', 5, 'Annual leave', 'Approved', 'Ben Carter'),
+    lv('Cy Mensah', yr + '-11-24', yr + '-11-28', 5, 'Annual leave', 'Requested', ''),
+    lv('Dee Park', yr + '-05-12', yr + '-05-16', 5, 'Annual leave', 'Approved', 'Ben Carter'),
+    lv('Zoe Hart', yr + '-11-17', yr + '-11-18', 2, 'Sick leave', 'Requested', ''),
+    lv('Maya Singh', yr + '-04-07', yr + '-04-18', 10, 'Annual leave', 'Approved', 'Ada Okafor'),
+    lv('Eli Ruiz', yr + '-08-11', yr + '-08-15', 5, 'Annual leave', 'Approved', 'Maya Singh'),
+    lv('Ivy Chen', yr + '-06-02', yr + '-06-06', 5, 'Annual leave', 'Approved', 'Leo Vance'),
+    lv('Leo Vance', yr + '-09-15', yr + '-09-19', 5, 'Annual leave', 'Approved', 'Ada Okafor')
+  ];
+  const half = new Date().getMonth() < 6 ? 'H1' : 'H2';
+  const cycles = [{id: 'c1', name: half + ' ' + yr + ' review', from: yr + (half === 'H1' ? '-01-01' : '-07-01'), to: yr + (half === 'H1' ? '-06-30' : '-12-31'), due: yr + '-11-21', status: 'Open'},
+    {id: 'c0', name: (half === 'H1' ? 'H2 ' + (yr - 1) : 'H1 ' + yr) + ' review', from: yr - 1 + '-07-01', to: yr + '-06-30', due: yr + '-05-16', status: 'Closed'}];
+  const rv = (cycle, owner, self, srate, mgr, mrate, by) => ({id: uuid(), cycle, owner,
+    self: self ? {text: self, rating: srate, at: Date.now() - 9 * 86400000} : null,
+    mgr: mgr ? {text: mgr, rating: mrate, by, at: Date.now() - 5 * 86400000} : null});
+  const reviews = [
+    rv('c1', 'Cy Mensah', 'Shipped the guides and the referral beta. The newsletter target slipped because I covered the campaign launch as well.', 3, null, 0, ''),
+    rv('c1', 'Dee Park', 'Onboarding time is down and the guided tour is live. Setup completion is close.', 4, 'Dee has carried onboarding end to end this half. Ready for a bigger remit.', 4, 'Ben Carter'),
+    rv('c1', 'Maya Singh', 'Planning shipped on schedule and NPS is past target.', 5, 'Best half of the year on Connect. Due a review of level and pay.', 5, 'Ada Okafor'),
+    rv('c1', 'Eli Ruiz', 'Funnel documented, activation lifted. The experiment backlog got away from me.', 3, null, 0, ''),
+    rv('c0', 'Cy Mensah', 'Grew the newsletter and published on schedule.', 4, 'Steady half, good output.', 4, 'Ben Carter'),
+    rv('c0', 'Dee Park', 'Mapped onboarding and ran the interviews.', 4, 'Strong, consistent.', 4, 'Ben Carter')
+  ];
+  welfare.forEach((x, i) => { if (i % 2 === 0) x.enps = [9, 7, 10, 6, 8, 9, 4, 8][i % 8]; });
+  const roles = [
+    {id: 'r1', title: 'Growth Analyst', team: 'Growth', sub: 'NativeTalk', hm: 'Ben Carter', status: 'Open', opened: yr + '-09-15', jd: ['Own channel reporting', 'Run acquisition experiments', 'Support the weekly metrics review']},
+    {id: 'r2', title: 'Support Engineer', team: 'Engineering', sub: 'Cyber Villa', hm: 'Leo Vance', status: 'Open', opened: yr + '-10-06', jd: ['First-line customer support', 'Triage incidents', 'Maintain the runbook']},
+    {id: 'r3', title: 'Partner Manager', team: 'Product', sub: 'Connect', hm: 'Maya Singh', status: 'On hold', opened: yr + '-08-01', jd: ['Sign and onboard channel partners', 'Own partner retention']},
+    {id: 'r4', title: 'Content Writer', team: 'Growth', sub: 'NativeTalk', hm: 'Ben Carter', status: 'Filled', opened: yr + '-05-02', jd: ['Write long-form guides']}
+  ];
+  const cd = (role, name, stage, d) => ({id: uuid(), role, name, email: name.toLowerCase().replace(/ /g, '.') + '@example.com', stage, at: Date.now() - d * 86400000, note: ''});
+  const cands = [
+    cd('r1', 'Tomi Adeyemi', 'Interview', 3), cd('r1', 'Rachel Obi', 'Screening', 6), cd('r1', 'Jude Nwosu', 'Offer', 1), cd('r1', 'Hana Yusuf', 'Rejected', 12),
+    cd('r2', 'Femi Bello', 'Applied', 2), cd('r2', 'Grace Udo', 'Screening', 4), cd('r2', 'Kene Okoro', 'Applied', 1),
+    cd('r3', 'Lara Diallo', 'Applied', 20), cd('r4', 'Ife Balogun', 'Hired', 40)
+  ];
+  const ones = [
+    {id: uuid(), owner: 'Ben Carter', with: 'Cy Mensah', at: Date.now() - 6 * 86400000, notes: 'Workload is the issue, not output. Agreed to hand the campaign cover to Zoe.'},
+    {id: uuid(), owner: 'Ben Carter', with: 'Cy Mensah', at: Date.now() - 27 * 86400000, notes: 'Newsletter growth is slower than planned. Trying a referral push.'},
+    {id: uuid(), owner: 'Ben Carter', with: 'Zoe Hart', at: Date.now() - 9 * 86400000, notes: 'Still finding her feet on the channel tests. Weekly check-ins for now.'},
+    {id: uuid(), owner: 'Maya Singh', with: 'Eli Ruiz', at: Date.now() - 4 * 86400000, notes: 'Experiment backlog. Agreed to cut scope to three per month.'}
+  ];
+  const fbk = (to, from, kind, text, d) => ({id: uuid(), to, from, kind, text, at: Date.now() - d * 86400000});
+  const fb = [
+    fbk('Cy Mensah', 'Dee Park', 'Praise', 'Picked up the referral launch at no notice and it still shipped on time.', 4),
+    fbk('Cy Mensah', 'Ben Carter', 'Improvement', 'Flag slipping deadlines earlier. You carried it quietly for two weeks.', 8),
+    fbk('Dee Park', 'Maya Singh', 'Praise', 'The onboarding interviews gave us the clearest signal we have had all year.', 6),
+    fbk('Zoe Hart', 'Ben Carter', 'Improvement', 'Standups are being missed. Let us get back to logging daily.', 5),
+    fbk('Maya Singh', 'Ada Okafor', 'Praise', 'Planning shipped on schedule and the team stayed calm doing it.', 10)
+  ];
+  const dc = (owner, name, type, status, d) => ({id: uuid(), owner, name, type, status, at: Date.now() - d * 86400000});
+  const docs = [].concat(...people.filter(p => p.role !== 'ceo').map(p => [
+    dc(p.name, 'Employment contract', 'Contract', 'Signed', 400),
+    dc(p.name, 'Job description', 'Role', 'On file', 380),
+    ...(p.name === 'Zoe Hart' || p.name === 'Noor Aziz' ? [dc(p.name, 'Updated handbook acknowledgement', 'Policy', 'Awaiting signature', 10)] : [dc(p.name, 'Updated handbook acknowledgement', 'Policy', 'Signed', 30)])
+  ]));
+  return {people, okrs, logs, stand, wnotes, welfare, daily, leave, cycles, reviews, roles, cands, ones, fb, docs};
 }
 function loadData() { const d = buildMock(); COLS.forEach(c => S[c] = d[c]); uid = null; }
 const save = () => render();
@@ -424,18 +683,18 @@ function setKr(oid, i, done) {
   const e = eff(), o = S.okrs.find(x => x.id === oid); if (!e || !o || e.role === 'hr') return;
   const k = o.krs[i];
   if (done) {
-    if (e.role === 'ceo') { if (k.pct !== 100) { Object.assign(k, {pct:100, req:false, reqAt:Date.now(), apBy:e.name}); logGain(o, 100); } }
+    if (e.role === 'ceo') { if (k.pct !== 100) { Object.assign(k, {pct:100, req:false, reqAt:Date.now(), apBy:e.name, apAt:Date.now()}); logGain(o, 100); } }
     else if (o.owner === e.name) Object.assign(k, {req:true, reqAt:Date.now()});
   } else if (k.pct === 100) {
     if (e.role !== 'ceo') return;
-    Object.assign(k, {pct:0, req:false, apBy:''}); logGain(o, -100);
+    Object.assign(k, {pct:0, req:false, apBy:'', apAt: 0}); logGain(o, -100);
   } else if (e.role === 'ceo' || o.owner === e.name) k.req = false;
   commit();
 }
 function approve(oid, i, ok) {
   const e = eff(), o = S.okrs.find(x => x.id === oid); if (!o || !canApprove(e, o)) return;
   const k = o.krs[i]; if (!k.req) return;
-  if (ok) { Object.assign(k, {pct:100, req:false, apBy:e.name}); logGain(o, 100); } else k.req = false;
+  if (ok) { Object.assign(k, {pct:100, req:false, apBy:e.name, apAt: Date.now()}); logGain(o, 100); } else k.req = false;
   commit();
 }
 
@@ -461,6 +720,8 @@ const ICONS = {
   stand: '<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/>',
   review: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/><path d="m9 15 2 2 4-4"/>',
   people: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/>',
+  perf: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  welf: '<path d="M12 20s-7-4.4-7-9.3A3.9 3.9 0 0 1 12 8a3.9 3.9 0 0 1 7 2.7C19 15.6 12 20 12 20z"/>',
   menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
   swap: '<path d="M7 7h12l-3-3M17 17H5l3 3"/>'
 };
@@ -485,7 +746,7 @@ function fbar(t, o = {}) {
   const sel = (k, label, all, list) => `<label class="f">${label}<select id="ff-${t}-${k}" data-ff="${t}.${k}"><option value="">${all}</option>${list.map(x => { const [v, l] = Array.isArray(x) ? x : [x, x]; return `<option value="${esc(v)}"${f[k] === v ? ' selected' : ''}>${esc(l)}</option>`; }).join('')}</select></label>`;
   return `<div class="card fbar"><div class="row" style="align-items:flex-end">
     <label class="f grow" style="flex-basis:220px">Search<input type="search" id="ff-${t}-q" data-ff="${t}.q" value="${esc(f.q)}" placeholder="${esc(o.ph || 'Search')}"></label>
-    ${o.team && o.team.length > 1 ? sel('team', 'Team', 'All teams', o.team) : ''}${o.st ? sel('st', o.stLabel || 'Status', o.stAll || 'All', o.st) : ''}
+    ${o.v ? sel('v', o.vLabel || 'Result', o.vAll || 'Any', o.v) : ''}${o.mo ? sel('mo', 'Due month', 'Any month', o.mo) : ''}${o.team && o.team.length > 1 ? sel('team', 'Team', 'All teams', o.team) : ''}${o.st ? sel('st', o.stLabel || 'Status', o.stAll || 'All', o.st) : ''}
     ${dirty ? `<button class="btn quiet sm" data-act="clearff" data-t="${t}">Clear filters</button>` : ''}</div>${o.count != null ? `<p class="sub" style="margin:10px 0 0">${esc(o.count)}</p>` : ''}</div>`;
 }
 function lbRows(e) {
@@ -505,22 +766,23 @@ function viewDash(e) {
   const done = mine.filter(x => x.status === 'Done').length;
   const awaitingOf = list => list.reduce((s, o) => s + o.krs.filter(k => k.req && k.pct !== 100).length, 0);
   const awaiting = awaitingOf(myOkrs);
-  const waiting = appr ? pendingFor(e).length : 0;
+  const revN = appr ? revsFor(e).length : 0, waiting = appr ? pendingFor(e).length + revN : 0;
   const wkAll = S.stand.filter(x => x.week === wk && scope(e).has(x.owner));
   const companyStat = cp !== null ? stat('vio', 'Company OKRs', r0(cp) + '%', 'Average progress. View company OKRs', cp, 'okrs') : stat('vio', 'Company OKRs', '—', 'None set yet', null, 'okrs');
   const stats = hr ? [companyStat,
       stat('tea', 'Standup this week', wkAll.length ? `${wkAll.filter(x => x.status === 'Done').length}/${wkAll.length}` : '—', wkAll.length ? 'Activities done. Open standup' : 'No entries yet', null, 'stand'),
       stat('amb', 'Open requests', awaitingOf(S.okrs.filter(o => o.owner === 'Company' ? cv(o, e) : scope(e).has(o.owner))), 'Finished key results across the company, waiting on approvers', null, 'okrs')]
-    : [stat('ind', 'Your annual progress', r0(myPct) + '%', myOkrs.length ? plural(myOkrs.length, 'OKR', 'OKRs') + '. Open my OKRs' : 'No OKRs yet. Create one', myPct, 'okrs'),
+    : [stat('ind', 'Your annual progress', r0(myPct) + '%', myOkrs.length ? plural(myOkrs.length, 'OKR', 'OKRs') + '. Open my OKRs' : (e.role === 'member' ? 'No OKRs yet. Your line manager sets them' : 'No OKRs yet. Create one'), myPct, 'okrs'),
       stat('tea', 'Standup this week', mine.length ? `${done}/${mine.length}` : '—', mine.length ? 'Activities done. Open standup' : 'No entries yet. Add one', null, 'stand'),
       ...(e.role === 'ceo' ? [] : [stat('amb', 'My requests', awaiting, awaiting ? 'Key results you finished, waiting for someone to approve' : 'Nothing waiting. Open my OKRs', null, 'okrs')]),
       ...(appr ? [stat('ros', 'To review', waiting, waiting ? 'Requests from your team for you to approve or send back' : 'No requests to review. Open approvals', null, 'appr')] : []),
       companyStat];
   const todo = [];
-  if (waiting) todo.push([`${plural(waiting, 'key result is', 'key results are')} waiting for your approval.`, tabBtn('appr', 'Review', '')]);
+  if (waiting - revN) todo.push([`${plural(waiting - revN, 'key result is', 'key results are')} waiting for your approval.`, tabBtn('appr', 'Review', '')]);
+  if (revN) todo.push([`${plural(revN, 'OKR change is', 'OKR changes are')} waiting for your approval.`, tabBtn('appr', 'Review', '')]);
   if (fridayDue(e)) todo.push(['Add your Friday comments on blockers and wins.', tabBtn('review', 'Open review', '')]);
   if (!hr && !mine.length) todo.push(['No standup entries for this week.', tabBtn('stand', 'Add activity')]);
-  if (!hr && !myOkrs.length) todo.push(['You have no OKRs yet.', tabBtn('okrs', 'Add OKR')]);
+  if (!hr && !myOkrs.length) todo.push(e.role === 'member' ? ['You have no OKRs yet. Your line manager sets them.', ''] : ['You have no OKRs yet.', tabBtn('okrs', 'Add OKR')]);
   if (awaiting) todo.push([`${plural(awaiting, 'of your key results is', 'of your key results are')} awaiting approval.`, '']);
   const company = S.okrs.filter(o => o.owner === 'Company' && cv(o, e));
   const subCard = isGroup(e) ? `<section class="card"><div class="sec-h"><h2>Subsidiaries</h2>${subFilter ? '<button class="btn quiet sm" data-act="subfilter" data-s="">Show all</button>' : '<span class="sub">Select one to filter the whole app</span>'}</div><div class="list">${SUBS.map(n => {
@@ -536,7 +798,7 @@ function viewDash(e) {
   <div class="cols"><div class="stack">
     ${subCard}
     ${hr ? '' : `<section class="card s-okrs"><div class="sec-h"><h2>My OKRs</h2>${myOkrs.length ? tabBtn('okrs', 'View all', 'quiet') : ''}</div>
-      ${myOkrs.length ? `<div class="list">${myOkrs.slice(0, 4).map(okrRow).join('')}</div>` : empty('You have no OKRs yet.', tabBtn('okrs', 'Add your first OKR', ''))}</section>
+      ${myOkrs.length ? `<div class="list">${myOkrs.slice(0, 4).map(okrRow).join('')}</div>` : empty(e.role === 'member' ? 'You have no OKRs yet. Your line manager sets them.' : 'You have no OKRs yet.', e.role === 'member' ? '' : tabBtn('okrs', 'Add your first OKR', ''))}</section>
     <section class="card s-prios"><div class="sec-h"><h2>My standup this week</h2>${mine.length ? tabBtn('stand', 'View all', 'quiet') : ''}</div>
       ${mine.length ? `<div class="list">${mine.map(x => `<div class="kr"><div class="t">${esc(x.text)}</div>${chip(x.status, statTone(x.status))}</div>`).join('')}</div>` : empty('No standup entries for this week.', tabBtn('stand', 'Add an activity', ''))}</section>`}
     ${company.length ? `<section class="card s-company"><div class="sec-h"><h2>Company OKRs</h2>${tabBtn('okrs', 'View all', 'quiet')}</div><p class="sub" style="margin:-4px 0 4px">Goals for the whole company or one subsidiary.</p><div class="list">${company.slice(0, 3).map(okrRow).join('')}</div></section>` : ''}
@@ -565,38 +827,61 @@ function fridayDue(e) {
 function ownerOptions(e) {
   if (e.role === 'ceo') return ['Company', ...SUBS.map(x => 'Company:' + x), ...S.people.map(p => p.name).filter(n => n !== e.name), e.name].filter((v, i, a) => a.indexOf(v) === i);
   if (e.role === 'manager') return [e.name, ...[...teamNames(e)].filter(n => n !== e.name)];
-  if (e.role === 'member') return [e.name];
   return [];
 }
+function editForm(o, direct) {
+  const d = editing;
+  return `<form class="card" data-submit="saveedit"><h3>Edit OKR</h3>
+    <p class="sub">${direct ? 'Changes apply right away.' : 'Changes are not applied until ' + esc(approverOf(o)) + ' approves them.'}</p>
+    <label class="f">Objective<input type="text" id="ed-obj" data-draft="ed-obj" value="${esc(d.obj)}"></label>
+    <div style="display:flex;flex-direction:column;gap:8px"><span class="lbl">Key results · ${fmt(100 / d.krs.length)}% each</span>
+    ${d.krs.map((k, i) => { const lock = k.src != null && (o.krs[k.src].pct === 100 || o.krs[k.src].req);
+      return `<div class="row" style="flex-wrap:nowrap"><input type="text" class="grow" id="ed-kr-${i}" data-draft="ed-kr" data-i="${i}" value="${esc(k.title)}" aria-label="Key result ${i + 1}">${isPersonal(o) ? `<select id="ed-km-${i}" data-chg="edmonth" data-i="${i}" aria-label="Due month">${monOpts(k.month)}</select>` : ''}${d.krs.length > 2 && !lock ? `<button type="button" class="btn quiet sm" data-act="rmedkr" data-i="${i}">Remove</button>` : ''}</div>`; }).join('')}
+    <div><button type="button" class="btn ghost sm" data-act="addedkr">+ Add key result</button></div>
+    <p class="sub" style="margin:0">${isPersonal(o) ? 'Personal key results can be adjusted every month: change what you do or when it is due.' : 'Company OKRs are annual and normally stay in place all year.'}</p></div>
+    <div class="row"><button class="btn" type="submit">${direct ? 'Save changes' : 'Send for approval'}</button><button type="button" class="btn quiet" data-act="canceledit">Cancel</button></div></form>`;
+}
 function okrCard(o, e) {
+  const direct = e.role === 'ceo' || canApprove(e, o);
+  if (editing && editing.id === o.id) return editForm(o, direct);
+  const canEdit = e.role !== 'hr' && (direct || o.owner === e.name);
   const n = o.krs.length, wt = 100 / n, p = okrPct(o);
-  const canDel = e.role !== 'hr' && (o.owner === e.name || e.role === 'ceo');
+  const canDel = e.role === 'ceo' || (e.role === 'manager' && (o.owner === e.name || canApprove(e, o)));
   const canKr = e.role !== 'hr' && (e.role === 'ceo' || (o.owner !== 'Company' && o.owner === e.name));
   const delUi = !canDel ? '' : confirmDel === o.id
     ? `<span class="acts"><button class="btn bad sm" data-act="delokr" data-id="${o.id}">Delete</button><button class="btn quiet sm" data-act="cancel">Cancel</button></span>`
     : `<button class="btn quiet sm" data-act="askdel" data-id="${o.id}">Delete</button>`;
-  return `<article class="card"><div class="okr-h"><div class="grow"><h3>${esc(o.objective)}</h3><div class="sub">${esc(ownerLabel(o))} · ${esc(o.year)} · ${plural(n, 'key result', 'key results')}</div></div>${delUi}</div>
+  const editUi = !canEdit ? '' : o.rev ? `<span class="acts">${chip('Change awaiting approval', 'warn')}${o.rev.by === e.name ? `<button class="btn quiet sm" data-act="cancelrev" data-id="${o.id}">Cancel change</button>` : ''}</span>` : `<button class="btn quiet sm" data-act="editokr" data-id="${o.id}">Edit</button>`;
+  return `<article class="card"><div class="okr-h"><div class="grow"><h3>${esc(o.objective)}</h3><div class="sub">${esc(ownerLabel(o))} · ${esc(o.year)} · ${plural(n, 'key result', 'key results')}</div></div><span class="acts">${editUi}${delUi}</span></div>
     <div class="prog">${bar(p)}<span class="pc">${r0(p)}%</span></div>
     <div class="list">${o.krs.map((k, i) => {
       const st = krState(k);
-      const status = st === 'approved' ? chip('Approved' + (k.apBy ? ' by ' + k.apBy : ''), 'good') : st === 'awaiting' ? chip('Awaiting approval', 'warn') : chip('Not completed');
-      let act = '';
+      if (ff.okrs.mo && isPersonal(o) && String(k.month) !== ff.okrs.mo) return '';
+      const od = overdue(o, k), due = isPersonal(o) && k.month != null && st !== 'approved' ? chip((od ? 'Overdue · ' : 'Due ') + MON[k.month], od ? 'bad' : '') : '';
+      const status = st === 'approved' ? chip('Approved' + (k.apBy ? ' by ' + k.apBy : '') + (k.apAt ? ' · ' + dateShort(k.apAt) : ''), 'good') : st === 'awaiting' ? chip('Awaiting approval', 'warn') : chip('Not completed');
+      let act = '', mv = '';
+      if (od && o.year === curY() && !o.rev && e.role !== 'hr' && (direct || o.owner === e.name)) mv = `<button class="btn quiet sm" data-act="kmove" data-o="${o.id}" data-i="${i}" title="${direct ? 'Move this key result to this month' : 'Ask your line manager to move this key result to this month'}">Move to ${MON[curM()]}</button>`;
       if (canKr) {
-        if (st === 'open') act = `<button class="btn ghost sm" data-act="krdone" data-o="${o.id}" data-i="${i}" data-v="1">${e.role === 'ceo' ? 'Mark complete' : 'Request approval'}</button>`;
+        if (st === 'open') act = `<button class="btn ghost sm" data-act="krdone" data-o="${o.id}" data-i="${i}" data-v="1" title="${e.role === 'ceo' ? 'Mark this key result done' : 'Mark this key result done. Your line manager still has to approve it.'}">Done</button>`;
         else if (st === 'awaiting') act = `<button class="btn quiet sm" data-act="krdone" data-o="${o.id}" data-i="${i}" data-v="0">Withdraw</button>`;
         else if (e.role === 'ceo') act = `<button class="btn quiet sm" data-act="krdone" data-o="${o.id}" data-i="${i}" data-v="0">Reopen</button>`;
       }
-      return `<div class="kr"><div class="t">${esc(k.title)}<div class="sub num">${fmt(wt)}% of this OKR</div></div><div class="acts">${status}${act}</div></div>`;
+      return `<div class="kr"><div class="t">${esc(k.title)}<div class="sub num">${fmt(wt)}% of this OKR</div></div><div class="acts">${due}${status}${mv}${act}</div></div>`;
     }).join('')}</div></article>`;
 }
 function viewOkrs(e) {
   const sc = scope(e), f = ff.okrs;
-  const okrOk = o => hit(f.q, o.objective, o.owner === 'Company' ? ownerLabel(o) : o.owner, ...o.krs.map(k => k.title)) && (!f.st || o.krs.some(k => f.st === 'complete' ? false : krState(k) === f.st) || (f.st === 'complete' && o.krs.length && o.krs.every(k => k.pct === 100)));
+  const okrOk = o => hit(f.q, o.objective, o.owner === 'Company' ? ownerLabel(o) : o.owner, ...o.krs.map(k => k.title)) && (!f.st || o.krs.some(k => krState(k) === f.st) || (f.st === 'complete' && o.krs.length && o.krs.every(k => k.pct === 100))) && (!f.mo || !isPersonal(o) || o.krs.some(k => String(k.month) === f.mo));
   const allCompany = S.okrs.filter(o => o.owner === 'Company' && cv(o, e));
   const allPeople = [...sc].filter(n => personOkrs(n).length);
   const company = allCompany.filter(o => !f.team && okrOk(o));
   const people = allPeople.filter(n => (!f.team || person(n)?.team === f.team) && personOkrs(n).some(okrOk)).sort((a, b) => a.localeCompare(b));
   const shown = o => okrOk(o);
+  const view = okrTab || (isGroup(e) ? 'company' : 'personal');
+  const nPersonal = allPeople.reduce((t, n) => t + personOkrs(n).length, 0);
+  const shownN = view === 'company' ? company.length : people.reduce((t, n) => t + personOkrs(n).filter(shown).length, 0);
+  const tabs = `<div class="seg" role="tablist" aria-label="OKR type">${[['company', 'Company', allCompany.length], ['personal', e.role === 'member' ? 'My OKRs' : 'Personal', nPersonal]].map(([v, l, c]) =>
+    `<button role="tab" aria-selected="${view === v}" data-act="okrtab" data-v="${v}">${l}<span class="seg-n">${c}</span></button>`).join('')}</div>`;
   const ow = ownerOptions(e);
   if (!ow.includes(draft.owner)) draft.owner = ow[0];
   const n = draft.krs.length;
@@ -607,26 +892,40 @@ function viewOkrs(e) {
     <div style="display:flex;flex-direction:column;gap:8px"><span class="lbl">Key results · ${fmt(100 / n)}% each</span>
     ${draft.krs.map((k, i) => `<div class="row" style="flex-wrap:nowrap"><span class="num sub" style="min-width:44px;text-align:right">${fmt(100 / n)}%</span>
       <input type="text" class="grow" id="ok-kr-${i}" data-draft="kr" data-i="${i}" value="${esc(k)}" placeholder="Key result ${i + 1}" aria-label="Key result ${i + 1}">
+      ${draft.owner && !draft.owner.startsWith('Company') ? `<select id="ok-km-${i}" data-chg="krmonth" data-i="${i}" aria-label="Due month">${monOpts(draft.ms[i] ?? curM())}</select>` : ''}
       <button type="button" class="btn quiet sm" data-act="rmkr" data-i="${i}"${n <= 2 ? ' disabled' : ''} aria-label="Remove key result ${i + 1}">Remove</button></div>`).join('')}</div>
     <div class="row between"><div class="row"><button type="button" class="btn ghost sm" data-act="addkr"${n >= 20 ? ' disabled' : ''}>+ Add key result</button><span class="sub">2 to 20 key results</span></div>
+    <p class="sub" style="flex-basis:100%;margin:0">${draft.owner && draft.owner.startsWith('Company') ? 'Company OKRs are annual and stay in place all year.' : 'Plan each key result for a month. You can adjust personal OKRs every month, and changes are approved by the line manager. Make each one specific, measurable, achievable, realistic and time-bound.'}</p>
     <div class="row"><button type="button" class="btn quiet" data-act="newokr">Cancel</button><button class="btn" type="submit">Save OKR</button></div></div></form>` : '';
   return `${pageHead('OKRs', 'Annual goals and their key results. Each key result is worth an equal share of its OKR.', newBtn)}
+  ${e.role === 'member' ? `<div class="banner info"><span>Your line manager sets your OKRs. You can edit them, and ${esc(approverOf({owner: e.name}))} has to approve each change before it takes effect.</span></div>` : ''}
   ${form}
-  ${allCompany.length + allPeople.length > 1 ? fbar('okrs', {ph: 'Search objectives, key results or people', team: teamsIn(allPeople), st: KRST, stLabel: 'Key results', stAll: 'Any', count: `Showing ${company.length + people.reduce((t, n) => t + personOkrs(n).filter(shown).length, 0)} of ${allCompany.length + allPeople.reduce((t, n) => t + personOkrs(n).length, 0)} OKRs`}) : ''}
-  <section class="block"><div class="sec-h"><h2>Company OKRs</h2>${company.length ? `<span class="sub">Average <span class="num">${r0(companyPct(e))}%</span></span>` : ''}</div><p class="sub" style="margin:-4px 0 4px">Goals for the whole company or one subsidiary.</p>
-    ${company.length ? company.map(o => okrCard(o, e)).join('') : `<div class="card">${empty((f.q || f.st || f.team ? 'No company OKRs match these filters.' : 'No company OKRs yet.') + (e.role === 'ceo' ? ' Choose New OKR and set the owner to Whole company or a subsidiary.' : ''))}</div>`}</section>
-  <section class="block"><div class="sec-h"><h2>${e.role === 'member' ? 'My OKRs' : 'Personal OKRs'}</h2></div>
+  ${tabs}
+  ${view === 'company' ? '<p class="sub" style="margin:0">Company OKRs are annual. Corporate direction rarely changes abruptly, so they stay in place all year.</p>' : `<p class="sub" style="margin:0">Personal OKRs are planned by month and can be adjusted monthly if the work is not going to plan. Changes go to the line manager for approval.</p>`}
+  ${(view === 'company' ? allCompany.length : nPersonal) > 1 ? fbar('okrs', {ph: view === 'company' ? 'Search company OKRs or key results' : 'Search objectives, key results or people', team: view === 'personal' ? teamsIn(allPeople) : [], mo: view === 'personal' ? MON.map((m, i) => [String(i), MONFULL[i] + (i === curM() ? ' (this month)' : '')]) : null, st: KRST, stLabel: 'Key results', stAll: 'Any', count: `Showing ${shownN} of ${view === 'company' ? allCompany.length : nPersonal} OKRs`}) : ''}
+  ${view === 'company' ? `<section class="block"><div class="sec-h"><h2>Company OKRs</h2>${company.length ? `<span class="sub">Average <span class="num">${r0(companyPct(e))}%</span></span>` : ''}</div><p class="sub" style="margin:-4px 0 4px">Goals for the whole company or one subsidiary.</p>
+    ${company.length ? company.map(o => okrCard(o, e)).join('') : `<div class="card">${empty((f.q || f.st || f.team ? 'No company OKRs match these filters.' : 'No company OKRs yet.') + (e.role === 'ceo' ? ' Choose New OKR and set the owner to Whole company or a subsidiary.' : ''))}</div>`}</section>` : ''}
+  ${view === 'personal' ? `<section class="block"><div class="sec-h"><h2>${e.role === 'member' ? 'My OKRs' : 'Personal OKRs'}</h2></div>
     ${people.length ? people.map(nm => `<div class="block"><div class="person-h">${avatar(nm, true)}<b>${esc(nm)}</b><span class="sub">Annual progress <span class="num">${r0(personPct(nm))}%</span></span></div>${personOkrs(nm).filter(shown).map(o => okrCard(o, e)).join('')}</div>`).join('')
-      : `<div class="card">${empty(f.q || f.st || f.team ? 'No personal OKRs match these filters.' : 'No personal OKRs yet.', ow.length ? '<button class="btn" data-act="newokr">Create the first OKR</button>' : '')}</div>`}</section>`;
+      : `<div class="card">${empty(f.q || f.st || f.team ? 'No personal OKRs match these filters.' : 'No personal OKRs yet.' + (e.role === 'member' ? ' Your line manager will set them.' : ''), ow.length ? '<button class="btn" data-act="newokr">Create the first OKR</button>' : '')}</div>`}</section>` : ''}`;
 }
 
 function viewApprovals(e) {
   const all = pendingFor(e), f = ff.appr;
   const list = all.filter(({o, k}) => (!f.team || person(o.owner)?.team === f.team) && hit(f.q, o.owner, o.objective, k.title));
-  return `${pageHead('Approvals', 'Key results your team marked complete. Approving adds to their progress and to this week\'s gain.')}
+  const revs = revsFor(e).filter(o => (!f.team || person(o.owner)?.team === f.team) && hit(f.q, o.owner, o.objective, o.rev.objective, ...o.rev.krs.map(k => k.title)));
+  const keptSrc = o => new Set(o.rev.krs.map(k => k.src));
+  const diff = o => `<div class="diff">${o.rev.objective !== o.objective ? `<div><s>${esc(o.objective)}</s> → <b>${esc(o.rev.objective)}</b></div>` : `<div><b>${esc(o.objective)}</b></div>`}
+    ${o.rev.krs.map(k => k.src == null ? `<div>+ ${esc(k.title)} <span class="sub">(new key result${k.month != null ? ', due ' + MON[k.month] : ''})</span></div>` : k.title !== o.krs[k.src].title || k.month !== o.krs[k.src].month ? `<div><s>${esc(o.krs[k.src].title)}${o.krs[k.src].month != null ? ' (due ' + MON[o.krs[k.src].month] + ')' : ''}</s> → ${esc(k.title)}${k.month != null ? ' (due ' + MON[k.month] + ')' : ''}</div>` : `<div class="sub">${esc(k.title)}</div>`).join('')}
+    ${o.krs.map((k, i) => keptSrc(o).has(i) ? '' : `<div class="sub"><s>${esc(k.title)}</s> (removed)</div>`).join('')}</div>`;
+  const revUi = revs.length ? `<section class="card"><h2 style="font-size:16px">OKR changes</h2><p class="sub">Edits your team made to their OKRs. They only take effect when you approve.</p><div class="list">${revs.map(o => `<div class="kr" style="align-items:flex-start"><div class="person-h t" style="align-items:flex-start">${avatar(o.owner)}<div style="min-width:0"><div><b>${esc(o.owner)}</b> <span class="sub">proposed a change</span></div>${diff(o)}</div></div>
+    <div class="acts"><button class="btn sm" data-act="apprev" data-id="${o.id}">Approve</button><button class="btn ghost sm" data-act="rejrev" data-id="${o.id}">Reject</button></div></div>`).join('')}</div></section>` : '';
+  return `${pageHead('Approvals', 'Key results your team marked complete, and changes they want to make to their OKRs. Approving a key result adds to their progress and to this week\'s gain.')}
+  ${revUi}
+  ${all.length ? '<p class="sub" style="margin:0">Each request is checked against work sources for supporting evidence. In this demo the check is simulated.</p>' : ''}
   ${all.length > 1 ? fbar('appr', {ph: 'Search by person, OKR or key result', team: teamsIn(all.map(x => x.o.owner)), count: `Showing ${list.length} of ${all.length}`}) : ''}
-  <div class="card">${list.length ? `<div class="list">${list.map(({o, k, i}) => `<div class="kr"><div class="person-h t">${avatar(o.owner)}<div style="min-width:0"><div><b>${esc(o.owner)}</b> <span class="sub">${esc(o.objective)}</span></div><div>${esc(k.title)}</div></div></div>
-    <div class="acts">${chip('Worth ' + fmt(100 / o.krs.length) + '%')}<button class="btn sm" data-act="approve" data-o="${o.id}" data-i="${i}">Approve</button><button class="btn ghost sm" data-act="sendback" data-o="${o.id}" data-i="${i}">Send back</button></div></div>`).join('')}</div>` : empty(all.length ? 'No requests match these filters.' : 'Nothing is waiting for you.')}</div>`;
+  <div class="card">${list.length ? `<div class="list">${list.map(({o, k, i}) => `<div class="kr"><div class="person-h t">${avatar(o.owner)}<div style="min-width:0"><div><b>${esc(o.owner)}</b> <span class="sub">${esc(o.objective)}</span></div><div>${esc(k.title)}</div>${(c => `<div class="sub">${aiDetail(c)}</div>`)(aiCheck(o.owner, k.title))}${k.reqAt ? `<div class="sub">Marked done ${dateShort(k.reqAt)}${k.month != null ? ' · due ' + MON[k.month] : ''}</div>` : ''}</div></div>
+    <div class="acts">${aiChip(aiCheck(o.owner, k.title))}${chip('Worth ' + fmt(100 / o.krs.length) + '%')}<button class="btn sm" data-act="approve" data-o="${o.id}" data-i="${i}">Approve</button><button class="btn ghost sm" data-act="sendback" data-o="${o.id}" data-i="${i}">Send back</button></div></div>`).join('')}</div>` : empty(all.length ? 'No requests match these filters.' : revs.length ? 'No key results are waiting.' : revsFor(e).length ? 'No changes match these filters.' : 'Nothing is waiting for you.')}</div>`;
 }
 
 function grouped(items, key) { const m = new Map(); items.forEach(x => { const k = x[key]; if (!m.has(k)) m.set(k, []); m.get(k).push(x); }); return [...m].sort((a, b) => a[0].localeCompare(b[0])); }
@@ -669,6 +968,244 @@ function viewReview(e) {
   }).join('') : `<div class="card">${empty(names.length ? 'No one matches these filters.' : 'Nothing to review for this week yet.')}</div>`}`;
 }
 
+const canSeeDossier = (e, p) => !!p && (isGroup(e) || (e.role === 'manager' && teamNames(e).has(p.name)) || p.name === e.name);
+const dosLink = (e, p, label) => canSeeDossier(e, p) ? `<button class="namelink" data-act="dossier" data-id="${p.id}">${esc(label || p.name)}</button>` : esc(label || p.name);
+
+function viewDaily(e) {
+  const d = curDay(), sc = scope(e), f = ff.daily, q = f.q.trim().toLowerCase();
+  const all = S.daily.filter(x => x.day === d && sc.has(x.owner));
+  const checked = all.map(x => ({x, c: validate(x.owner, x.text, x.n, x.found)}));
+  const rows = checked.filter(({x, c}) => (!f.team || person(x.owner)?.team === f.team) && (!f.v || c.v === f.v) && (!q || x.owner.toLowerCase().includes(q) || x.text.toLowerCase().includes(q)));
+  const mismatch = checked.filter(({c}) => c.v === 'gap' || c.v === 'short').length;
+  const nav = `<div class="row" style="gap:4px"><button class="btn quiet sm" data-act="day" data-n="-1" aria-label="Previous day">‹</button>
+    <span class="num" style="min-width:150px;text-align:center">${esc(dayLabel(d))}</span>
+    <button class="btn quiet sm" data-act="day" data-n="1" aria-label="Next day"${d >= today() ? ' disabled' : ''}>›</button>
+    <button class="btn quiet sm" data-act="day" data-n="0"${d === today() ? ' disabled' : ''}>Today</button></div>`;
+  return `${pageHead('Daily log', 'What everyone did today, checked against the work sources. A gap on one day means nothing; a pattern is worth a conversation.', nav)}
+  ${e.role !== 'hr' && d === today() ? `<form class="card" data-submit="adddaily"><label class="lbl" for="dl-text">Log what you did</label>
+    <div class="row"><input type="text" class="grow" style="flex-basis:260px" id="dl-text" placeholder="e.g. Engaged prospects on the new channel">
+      <input type="number" min="0" step="any" id="dl-n" placeholder="How many" aria-label="How many" style="width:120px">
+      <input type="text" id="dl-unit" placeholder="Unit, e.g. prospects" aria-label="Unit" style="width:160px"><button class="btn" type="submit">Add</button></div>
+    <p class="sub" style="margin:0">A number is optional, but it is what the check compares against.</p></form>` : ''}
+  ${all.length ? `<p class="sub" style="margin:0">${mismatch ? plural(mismatch, 'entry does', 'entries do') + ' not match the work sources.' : 'Everything logged today matches the work sources.'} Checking is simulated in this demo.</p>` : ''}
+  ${all.length > 1 ? fbar('daily', {ph: 'Search by person or activity', team: teamsIn(all.map(x => x.owner)), v: [['match', 'Matches'], ['short', 'Below what was reported'], ['gap', 'Not supported']], vLabel: 'Check', vAll: 'Any result', count: `Showing ${rows.length} of ${all.length}`}) : ''}
+  ${rows.length ? grouped(rows.map(r => ({...r, owner: r.x.owner})), 'owner').map(([o, list]) => `<section class="card"><div class="person-h">${avatar(o)}<b class="grow">${dosLink(e, person(o))}</b><span class="sub">${plural(list.length, 'entry', 'entries')}</span></div>
+    <div class="list">${list.map(({x, c}) => `<div class="kr" style="align-items:flex-start"><div class="t">${esc(x.text)}
+      <div class="sub">${c.n != null ? `Reported <b>${fmt(c.n)} ${esc(x.unit || '')}</b> · found <b>${fmt(c.found)}</b> in ${esc(srcLine(c))}` : `No figure reported · ${esc(srcLine(c))}`}</div></div>
+      <div class="acts">${c.n != null ? chip(VV[c.v][0], VV[c.v][1]) : aiChip(c)}${x.owner === e.name && x.day === today() ? `<button class="btn quiet sm" data-act="deldaily" data-id="${x.id}">Delete</button>` : ''}</div></div>`).join('')}</div></section>`).join('')
+    : `<div class="card">${empty(all.length ? 'Nothing matches these filters.' : d === today() ? 'Nothing logged yet today.' : 'Nothing was logged on this day.')}</div>`}`;
+}
+
+function viewHire(e) {
+  const f = ff.hire, q = f.q.trim().toLowerCase();
+  const all = openRoles(e);
+  const rs = all.filter(r => (hireTab === 'all' || (hireTab === 'open' ? r.status === 'Open' : r.status !== 'Open')) && (!f.team || r.team === f.team) && (!q || r.title.toLowerCase().includes(q) || candsFor(r).some(c => c.name.toLowerCase().includes(q))));
+  const live = all.filter(r => r.status === 'Open');
+  const pipeline = live.reduce((t, r) => t + candsFor(r).filter(c => !['Hired', 'Rejected'].includes(c.stage)).length, 0);
+  const offers = all.reduce((t, r) => t + candsFor(r).filter(c => c.stage === 'Offer').length, 0);
+  const segs = [['open', 'Open roles', live.length], ['closed', 'Filled or on hold', all.length - live.length], ['all', 'All', all.length]];
+  return `${pageHead('Hiring', 'Open roles and who is in the pipeline. Hiring a candidate adds them to the directory.', isGroup(e) ? '<button class="btn" data-act="newrole">+ New role</button>' : '')}
+  <div class="stats">${stat('ind', 'Open roles', live.length, 'Roles actively hiring', null, 'hire')}
+    ${stat('tea', 'In the pipeline', pipeline, 'Candidates not yet hired or rejected', null, 'hire')}
+    ${stat('vio', 'At offer', offers, offers ? 'Waiting on a decision' : 'No offers out', null, 'hire')}</div>
+  ${openRole === 'new' && isGroup(e) ? `<form class="card" data-submit="addrole"><h2 style="font-size:16px">New role</h2>
+    <div class="row"><input type="text" class="grow" id="ro-title" placeholder="Job title" aria-label="Job title">
+      <select id="ro-sub" aria-label="Subsidiary">${SUBS.map(x => `<option>${esc(x)}</option>`).join('')}</select>
+      <input type="text" id="ro-team" placeholder="Team" aria-label="Team" style="width:140px">
+      <select id="ro-hm" aria-label="Hiring manager">${S.people.filter(p => p.role === 'manager' || p.role === 'ceo').map(p => `<option>${esc(p.name)}</option>`).join('')}</select>
+      <button class="btn" type="submit">Open role</button><button type="button" class="btn quiet" data-act="cancelrole">Cancel</button></div></form>` : ''}
+  <div class="seg" role="tablist" aria-label="Role status">${segs.map(([v, l, c]) => `<button role="tab" aria-selected="${hireTab === v}" data-act="hiretab" data-v="${v}">${l}<span class="seg-n">${c}</span></button>`).join('')}</div>
+  ${all.length > 1 ? fbar('hire', {ph: 'Search roles or candidates', team: [...new Set(all.map(r => r.team))].sort(), count: `Showing ${rs.length} of ${all.length} roles`}) : ''}
+  ${rs.length ? rs.map(r => { const cs = candsFor(r).sort((a, b) => STAGES.indexOf(a.stage) - STAGES.indexOf(b.stage) || a.name.localeCompare(b.name));
+    const can = isGroup(e) || r.hm === e.name;
+    return `<section class="card"><div class="sec-h"><h2>${esc(r.title)}</h2><div class="person-h">${chip(r.status, r.status === 'Open' ? 'good' : r.status === 'Filled' ? '' : 'warn')}${can && r.status === 'Open' ? `<button class="btn quiet sm" data-act="holdrole" data-id="${r.id}">Put on hold</button>` : ''}${can && r.status === 'On hold' ? `<button class="btn quiet sm" data-act="reopenrole" data-id="${r.id}">Reopen</button>` : ''}</div></div>
+    <p class="sub" style="margin:-4px 0 4px">${esc(r.team)} · ${esc(r.sub)} · hiring manager ${esc(r.hm)} · open since ${esc(new Date(r.opened).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}))}</p>
+    ${r.jd && r.jd.length ? `<p class="sub" style="margin:0">Responsibilities: ${esc(r.jd.join(' · '))}</p>` : ''}
+    ${can && r.status === 'Open' ? `<form class="row" data-submit="addcand" style="align-items:flex-end"><input type="hidden" id="cd-role" value="${r.id}">
+      <label class="f grow" style="flex-basis:220px">Add a candidate<input type="text" id="cd-name-${r.id}" placeholder="Full name"></label><button class="btn" type="submit" data-r="${r.id}">Add</button></form>` : ''}
+    <div class="list">${cs.length ? cs.map(c => `<div class="kr"><div class="person-h t">${avatar(c.name)}<div style="min-width:0"><div><b>${esc(c.name)}</b></div><div class="sub">${esc(c.email)} · added ${esc(dateShort(c.at))}</div></div></div>
+      <div class="acts">${can ? `<select class="sm" data-chg="stage" data-id="${c.id}" aria-label="Stage for ${esc(c.name)}">${STAGES.map(st => `<option${c.stage === st ? ' selected' : ''}>${esc(st)}</option>`).join('')}</select>` : chip(c.stage, STONE[c.stage])}
+      ${c.stage === 'Hired' && can && !person(c.name) ? `<button class="btn sm" data-act="hirecand" data-id="${c.id}">Add to directory</button>` : ''}
+      ${c.stage === 'Hired' && person(c.name) ? chip('In the directory', 'good') : ''}</div></div>`).join('') : '<div class="sub">No candidates yet.</div>'}</div></section>`; }).join('')
+    : `<div class="card">${empty(all.length ? 'No roles match these filters.' : 'No roles open.')}</div>`}`;
+}
+
+function viewRev(e) {
+  const c = liveCycle(), f = ff.rev, q = f.q.trim().toLowerCase();
+  if (!c) return `${pageHead('Reviews', 'Formal review cycles. Everyone writes a self-review, then their manager responds.')}
+    <div class="card">${empty('No review cycle is open.', isGroup(e) ? '<button class="btn" data-act="opencycle">Open a cycle</button>' : '')}</div>`;
+  const mine = revOf(c.id, e.name), days = revDue(c);
+  const team = [...lbScope(e)].map(n => person(n)).filter(p => p && !isGroup(p) && p.name !== e.name && (isGroup(e) || reportsTo(p, e)))
+    .map(p => ({p, r: revOf(c.id, p.name)})).filter(x => (!f.team || x.p.team === f.team) && (!f.v || revStage(x.r) === f.v) && (!q || x.p.name.toLowerCase().includes(q)))
+    .sort((a, b) => a.p.name.localeCompare(b.p.name));
+  const allMine = [...lbScope(e)].map(n => person(n)).filter(p => p && !isGroup(p) && p.name !== e.name && (isGroup(e) || reportsTo(p, e)));
+  const doneN = allMine.filter(p => revStage(revOf(c.id, p.name)) === 'done').length;
+  const scale = (id, sel) => `<label class="f">Rating<select id="${id}">${RATINGS.map((l, i) => i ? `<option value="${i}"${sel === i ? ' selected' : ''}>${i} · ${l}</option>` : '').join('')}</select></label>`;
+  const open = openRev;
+  const selfCard = e.role === 'hr' ? '' : `<section class="card"><div class="sec-h"><h2>Your self-review</h2>${chip(REVST[revStage(mine)][0], REVST[revStage(mine)][1])}</div>
+    ${mine && mine.self ? `<div class="list"><div class="kr"><div class="t">${esc(mine.self.text)}<div class="sub">You rated yourself ${mine.self.rating} · ${esc(RATINGS[mine.self.rating])} · sent ${esc(dateShort(mine.self.at))}</div></div></div>
+      ${mine.mgr ? `<div class="kr"><div class="t">${esc(mine.mgr.text)}<div class="sub">${esc(mine.mgr.by)} rated you ${mine.mgr.rating} · ${esc(RATINGS[mine.mgr.rating])} · ${esc(dateShort(mine.mgr.at))}</div></div>${chip('Complete', 'good')}</div>`
+        : `<div class="sub">Waiting on ${esc(approverOf({owner: e.name}))}.</div>`}</div>`
+      : `<form data-submit="saveself" style="display:flex;flex-direction:column;gap:12px">
+      <label class="f">How did the half go?<textarea id="rv-self" placeholder="What you delivered, what slipped and why, what you need next half."></textarea></label>
+      <div class="row">${scale('rv-selfr', 3)}<button class="btn" type="submit">Send self-review</button></div></form>`}</section>`;
+  return `${pageHead('Reviews', `${c.name}. Everyone writes a self-review, then their manager responds.`, isGroup(e) ? `<button class="btn quiet" data-act="closecycle">Close cycle</button>` : '')}
+  <div class="banner${days < 7 ? '' : ' info'}"><span>${days > 0 ? `${plural(days, 'day', 'days')} until self-reviews are due on ${esc(new Date(c.due).toLocaleDateString(undefined, {day: 'numeric', month: 'long'}))}.` : 'Self-reviews were due on ' + esc(new Date(c.due).toLocaleDateString(undefined, {day: 'numeric', month: 'long'})) + '.'}</span></div>
+  ${selfCard}
+  ${allMine.length ? `<section class="card"><div class="sec-h"><h2>${isGroup(e) ? 'Everyone' : 'Your team'}</h2><span class="sub">${doneN} of ${allMine.length} complete</span></div>
+    ${allMine.length > 1 ? fbar('rev', {ph: 'Search by name', team: teamsIn(allMine.map(p => p.name)), v: [['none', 'Not started'], ['self', 'Self-review in'], ['done', 'Complete']], vLabel: 'Stage', vAll: 'Any stage', count: `Showing ${team.length} of ${allMine.length}`}) : ''}
+    <div class="list">${team.length ? team.map(({p, r}) => { const st = revStage(r), ed = open === p.name;
+      return `<div class="krb"><div class="kr"><div class="person-h t">${avatar(p.name)}<div style="min-width:0"><div><b>${dosLink(e, p)}</b></div>
+        <div class="sub">${esc(p.title || ROLES[p.role])}${r && r.self ? ' · rated themselves ' + r.self.rating : ''}${r && r.mgr ? ' · you rated ' + r.mgr.rating : ''}</div>
+        ${r && r.self ? `<div>${esc(r.self.text)}</div>` : ''}${r && r.mgr ? `<div class="sub">${esc(r.mgr.by)}: ${esc(r.mgr.text)}</div>` : ''}</div></div>
+        <div class="acts">${chip(REVST[st][0], REVST[st][1])}${st === 'self' && reportsTo(p, e) && !ed ? `<button class="btn sm" data-act="openrev" data-n="${esc(p.name)}">Write review</button>` : ''}</div></div>
+        ${ed ? `<form class="ci-form" data-submit="savemgr" style="flex-wrap:wrap"><input type="hidden"><label class="f grow" style="flex-basis:100%">Your review of ${esc(p.name)}<textarea id="rv-mgr" placeholder="What they delivered, where they need support, what happens next."></textarea></label>
+          <div class="row">${scale('rv-mgrr', r && r.self ? r.self.rating : 3)}<button class="btn" type="submit">Submit review</button><button type="button" class="btn quiet" data-act="cancelrev">Cancel</button></div></form>` : ''}</div>`; }).join('')
+      : empty('Nobody matches these filters.')}</div></section>` : ''}`;
+}
+
+function viewPerf(e) {
+  const f = ff.perf, q = f.q.trim().toLowerCase();
+  const all = [...lbScope(e)].map(n => risk(n)).filter(Boolean);
+  const counts = {risk: all.filter(r => r.band === 'risk').length, watch: all.filter(r => r.band === 'watch').length, ok: all.filter(r => r.band === 'ok').length};
+  const top = [...all].sort((a, b) => b.ix - a.ix).slice(0, 5).map(r => r.n);
+  const rows = all.filter(r => (perfTab === 'all' || (perfTab === 'top' ? top.includes(r.n) : r.band === perfTab)) && (!f.team || r.p.team === f.team) && (!q || r.n.toLowerCase().includes(q) || (r.p.title || '').toLowerCase().includes(q)))
+    .sort((a, b) => perfTab === 'top' ? b.ix - a.ix : ({risk: 0, watch: 1, ok: 2})[a.band] - ({risk: 0, watch: 1, ok: 2})[b.band] || a.pct - b.pct);
+  const segs = [['all', 'Everyone', all.length], ['risk', 'Bottom: at risk', counts.risk], ['watch', 'Watch', counts.watch], ['top', 'Top five', Math.min(5, all.length)]];
+  return `${pageHead('Performance', 'Live standing against the pace expected by now. Flags are prompts to have a conversation, not a verdict.')}
+  <div class="stats">
+    ${stat('ros', 'At risk', counts.risk, counts.risk ? 'Two or more warning signs' : 'Nobody is flagged', null, 'perf')}
+    ${stat('amb', 'Watch', counts.watch, 'One warning sign', null, 'perf')}
+    ${stat('tea', 'On track', counts.ok, 'No warning signs', null, 'perf')}
+    ${stat('vio', 'Ahead of plan', all.filter(r => r.ix >= 110).length, `Past the ${r0(expectedPace())}% expected in month ${curM() + 1}`, null, 'perf')}</div>
+  <div class="seg" role="tablist" aria-label="Performance band">${segs.map(([v, l, c]) => `<button role="tab" aria-selected="${perfTab === v}" data-act="perftab" data-v="${v}">${l}<span class="seg-n">${c}</span></button>`).join('')}</div>
+  ${all.length > 1 ? fbar('perf', {ph: 'Search by name or job title', team: teamsIn(all.map(r => r.n)), count: `Showing ${rows.length} of ${all.length}`}) : ''}
+  <div class="card">${rows.length ? `<div class="list">${rows.map(r => `<div class="prow">
+    <div class="person-h grow">${avatar(r.n)}<div style="min-width:0"><div><b>${dosLink(e, r.p)}</b> ${chip(BAND[r.band][0], BAND[r.band][1])}${r.ix >= 110 ? chip('Ahead of plan', 'vio') : ''}${r.band === 'ok' && r.ix >= 110 && dueReview(r.p) ? chip('Review due', 'acc') : ''}</div>
+      <div class="sub">${esc(r.p.title || ROLES[r.p.role])} · ${esc(where(r.p))}</div>
+      ${r.flags.length ? `<ul class="flags">${r.flags.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '<div class="sub">Pace, standups and approvals all healthy.</div>'}</div></div>
+    <div class="pcol"><div class="sub">Delivering <b>${r0(r.ix)}%</b> of what is expected by now</div><div class="prog">${bar(r.pct, r.pct >= r.exp ? 'good' : r.pct < r.exp * 0.6 ? 'bad' : 'warm')}<span class="pc">${r0(r.pct)}%</span></div>
+      <div class="sub">Standups ${r0(r.sr)}% · ${plural(approvedFor(r.n), 'approval', 'approvals')}</div></div></div>`).join('')}</div>`
+    : empty(all.length ? 'Nobody matches these filters.' : 'No people to rank yet.')}</div>`;
+}
+
+function viewWelf(e) {
+  const f = ff.welf, q = f.q.trim().toLowerCase(), mine = welfareOf(e.name, wk), own = e.role !== 'hr';
+  const sc = lbScope(e), team = isGroup(e) || e.role === 'manager';
+  const names = team ? [...sc].filter(n => { const p = person(n); return p && !isGroup(p) && (!f.team || p.team === f.team) && (!q || n.toLowerCase().includes(q)); }).sort() : [];
+  const rows = names.map(n => ({n, p: person(n), w: welfareOf(n, wk), flag: welfareFlag(n)}));
+  const need = rows.filter(r => r.flag).length;
+  const avg = rows.filter(r => r.w).length ? rows.filter(r => r.w).reduce((t, r) => t + r.w.workload, 0) / rows.filter(r => r.w).length : null;
+  const scale = (id, label, list, sel) => `<label class="f grow">${label}<select id="${id}">${list.map((l, i) => i ? `<option value="${i}"${sel === i ? ' selected' : ''}>${i} · ${l}</option>` : '').join('')}</select></label>`;
+  const pend = team ? leavePending(e) : [];
+  const myLeave = own ? leaveFor(e.name) : [];
+  return `${pageHead('Welfare and leave', 'A short weekly check-in on workload and wellbeing, plus time off. Managers and HR see their own people.', weekNav())}
+  ${pend.length ? `<section class="card"><div class="sec-h"><h2>Leave to approve</h2>${chip(plural(pend.length, 'request', 'requests'), 'warn')}</div>
+    <div class="list">${pend.map(l => `<div class="kr"><div class="person-h t">${avatar(l.owner)}<div style="min-width:0"><div><b>${esc(l.owner)}</b> <span class="sub">${esc(l.type)}</span></div>
+      <div class="sub">${esc(new Date(l.from).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}))} to ${esc(new Date(l.to).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}))} · ${plural(l.days, 'day', 'days')} · ${leaveBal(l.owner)} days left this year</div></div></div>
+    <div class="acts"><button class="btn sm" data-act="apleave" data-id="${l.id}">Approve</button><button class="btn ghost sm" data-act="rejleave" data-id="${l.id}">Decline</button></div></div>`).join('')}</div></section>` : ''}
+  ${own ? `<form class="card" data-submit="savewelf"><h2 style="font-size:16px">${mine ? 'Your check-in this week' : 'How is this week going?'}</h2>
+    <div class="row" style="align-items:flex-end">${scale('wf-load', 'Workload', WLOAD, mine?.workload || 3)}${scale('wf-mood', 'How you feel', MOOD, mine?.mood || 4)}
+      <label class="f grow">How likely are you to recommend working here? <span class="sub">(0 to 10)</span><select id="wf-enps"><option value="">Rather not say</option>${Array.from({length: 11}, (_, i) => `<option value="${i}"${mine?.enps === i ? ' selected' : ''}>${i}</option>`).join('')}</select></label></div>
+    <label class="f">Anything to add <span class="sub">(optional, your manager and HR can read this)</span><input type="text" id="wf-note" value="${esc(mine?.note || '')}" placeholder="Blockers, workload, anything you need"></label>
+    <div class="row"><button class="btn" type="submit">${mine ? 'Update check-in' : 'Send check-in'}</button>${mine ? `<span class="sub">Last updated ${esc(dateShort(mine.ts))}</span>` : ''}</div></form>
+  <section class="card"><div class="sec-h"><h2>Your leave</h2><span class="sub">${leaveBal(e.name)} of ${ALLOWANCE} days left</span></div>
+    <form class="row" data-submit="addleave" style="align-items:flex-end"><label class="f">From<input type="date" id="lv-from"></label><label class="f">To<input type="date" id="lv-to"></label>
+      <label class="f">Type<select id="lv-type"><option>Annual leave</option><option>Sick leave</option><option>Unpaid leave</option><option>Compassionate leave</option></select></label>
+      <button class="btn" type="submit">Request</button></form>
+    <div class="list">${myLeave.length ? myLeave.slice(0, 4).map(l => `<div class="kr"><div class="t">${esc(l.type)}<div class="sub">${esc(new Date(l.from).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}))} to ${esc(new Date(l.to).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}))} · ${plural(l.days, 'day', 'days')}</div></div>
+      <div class="acts">${chip(l.status, l.status === 'Approved' ? 'good' : l.status === 'Requested' ? 'warn' : '')}${l.status === 'Requested' ? `<button class="btn quiet sm" data-act="delleave" data-id="${l.id}">Withdraw</button>` : ''}</div></div>`).join('') : '<div class="sub">No leave booked this year.</div>'}</div></section>` : ''}
+  ${team ? `<div class="stats">${stat('ros', 'Needs attention', need, need ? 'Heavy workload or a low score' : 'Nobody flagged this week', null, 'welf')}
+    ${stat('tea', 'Checked in', rows.filter(r => r.w).length + '/' + rows.length, 'People who answered this week', null, 'welf')}
+    ${stat('ind', 'Average workload', avg == null ? '—' : fmt(avg) + '/5', avg == null ? 'No check-ins yet' : WLOAD[Math.round(avg)], null, 'welf')}
+    ${(x => stat('vio', 'eNPS', x ? (x.score > 0 ? '+' : '') + x.score : '—', x ? `${x.pro} promoters, ${x.det} detractors of ${x.n}` : 'Nobody has answered yet', null, 'welf'))(enpsScore(names))}</div>
+  ${rows.length > 1 ? fbar('welf', {ph: 'Search by name', team: teamsIn(names), count: `Showing ${rows.length} people`}) : ''}
+  <div class="card">${rows.length ? `<div class="list">${rows.map(r => `<div class="kr"><div class="person-h t">${avatar(r.n)}<div style="min-width:0"><div><b>${dosLink(e, r.p)}</b></div>
+    <div class="sub">${r.w ? esc(WLOAD[r.w.workload] + ' workload · feeling ' + MOOD[r.w.mood].toLowerCase()) : 'No check-in this week'}</div>
+    ${r.w && r.w.note ? `<div>${esc(r.w.note)}</div>` : ''}${r.flag ? `<div class="sub"><b>${esc(r.flag)}</b></div>` : ''}</div></div>
+    <div class="acts">${r.w ? chip(r.w.workload + '/5 workload', r.w.workload >= 4 ? 'warn' : '') : chip('No check-in')}${r.flag ? chip('Needs attention', 'bad') : ''}</div></div>`).join('')}</div>`
+    : empty('Nobody to show yet.')}</div>` : ''}`;
+}
+
+function viewDossier(e) {
+  const p = S.people.find(x => x.id === dossier);
+  if (!canSeeDossier(e, p)) { dossier = null; return viewDash(e); }
+  const r = risk(p.name), mine = personOkrs(p.name), cov = jdCoverage(p.name);
+  const act = S.stand.filter(x => x.week === wk && x.owner === p.name);
+  const openKrs = [];
+  mine.forEach(o => o.krs.forEach(k => { if (k.pct !== 100) openKrs.push({o, k}); }));
+  const done = [];
+  mine.forEach(o => o.krs.forEach(k => { if (k.pct === 100 && k.apAt) done.push({o, k}); }));
+  done.sort((a, b) => b.k.apAt - a.k.apAt);
+  const hist = pastWeeks(4).map(w => welfareOf(p.name, w)).filter(Boolean);
+  const yrs = ((Date.now() - new Date(p.joined || Date.now())) / (365.25 * 86400000));
+  const hr = isGroup(e) && p.name !== e.name;
+  const note = p.hrnote;
+  return `${pageHead(p.name, `${p.title || ROLES[p.role]} · ${where(p)}`, '<button class="btn quiet" data-act="closedos">Back</button>')}
+  <section class="card"><div class="person-h">${avatar(p.name)}<div class="grow" style="min-width:0"><div class="person-h">${chip(ROLES[p.role] || p.role, ROLE_TONE[p.role])}${r ? chip(BAND[r.band][0], BAND[r.band][1]) : ''}</div>
+    <div class="sub">${esc(p.email || 'No email on file')} · joined ${esc(p.joined ? new Date(p.joined).toLocaleDateString(undefined, {month: 'long', year: 'numeric'}) : 'unknown')}${p.joined ? ` · ${fmt(yrs)} years` : ''}${mgrOf(p) ? ' · reports to ' + esc(mgrOf(p).name) : ''}${directs(p).length ? ' · ' + plural(directs(p).length, 'direct report', 'direct reports') : ''}</div></div></div></section>
+  <div class="stats">
+    ${stat('ind', 'Annual progress', r0(personPct(p.name)) + '%', `${r0(expectedPace())}% expected by now`, personPct(p.name), 'okrs')}
+    ${stat('tea', 'Key results approved', approvedFor(p.name) + '/' + krCount(p.name), plural(mine.length, 'OKR', 'OKRs'), null, 'okrs')}
+    ${stat('amb', 'Standup consistency', r0(standupRate(p.name)) + '%', 'Weeks logged out of the last 4', standupRate(p.name), 'stand')}
+    ${stat('ros', 'Overdue', overdueFor(p.name), overdueFor(p.name) ? 'Key results past their month' : 'Nothing overdue', null, 'okrs')}</div>
+  <div class="cols"><div class="stack">
+    <section class="card"><div class="sec-h"><h2>Job description vs goals</h2><span class="sub">${cov.filter(c => c.okr).length} of ${cov.length} covered</span></div>
+      <div class="list">${cov.length ? cov.map(c => `<div class="kr"><div class="t">${esc(c.d)}<div class="sub">${c.okr ? 'Covered by: ' + esc(c.okr) : 'No OKR covers this responsibility'}</div></div>${c.okr ? chip('Covered', 'good') : chip('Gap', 'warn')}</div>`).join('') : empty('No job description on file.')}</div></section>
+    <section class="card"><div class="sec-h"><h2>Active work</h2><span class="sub">Validation is simulated in this demo</span></div>
+      <div class="list">${openKrs.length ? openKrs.map(({o, k}) => { const c = aiCheck(p.name, k.title);
+        return `<div class="kr"><div class="t">${esc(k.title)}<div class="sub">${esc(o.objective)}${k.month != null ? ' · due ' + MON[k.month] : ''} · ${esc(aiDetail(c))}</div></div><div class="acts">${overdue(o, k) ? chip('Overdue', 'bad') : k.req ? chip('Awaiting approval', 'warn') : ''}${aiChip(c)}</div></div>`; }).join('')
+        : '<div class="sub">No open key results.</div>'}
+        ${act.length ? act.map(x => `<div class="kr"><div class="t">${esc(x.text)}<div class="sub">Standup this week</div></div>${chip(x.status, statTone(x.status))}</div>`).join('') : '<div class="sub">No standup entries this week.</div>'}</div></section>
+    <section class="card"><div class="sec-h"><h2>Approval history</h2></div>
+      <div class="list">${done.length ? done.slice(0, 8).map(({o, k}) => `<div class="kr"><div class="t">${esc(k.title)}<div class="sub">${esc(o.objective)}</div></div><div class="acts">${chip('Approved by ' + (k.apBy || '—') + ' · ' + dateShort(k.apAt), 'good')}</div></div>`).join('') : '<div class="sub">Nothing approved yet.</div>'}</div></section>
+  </div><div class="stack">
+    <section class="card"><div class="sec-h"><h2>Standing</h2></div>
+      ${r ? (r.flags.length ? `<ul class="flags">${r.flags.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '<p class="sub">Pace, standups and approvals all healthy.</p>') : '<p class="sub">Group-level roles are not ranked.</p>'}</section>
+    <section class="card"><div class="sec-h"><h2>One to ones</h2>${hr || (mgrOf(p) && mgrOf(p).id === e.id) ? '' : ''}</div>
+      ${mgrOf(p) && mgrOf(p).name === e.name ? `<form class="row" data-submit="addone" style="align-items:flex-end"><label class="f grow" style="flex-basis:100%">Log a one to one<input type="text" id="one-note" placeholder="What you discussed and what you agreed"></label><button class="btn sm" type="submit">Save</button></form>` : ''}
+      <div class="list">${onesFor(p.name, mgrOf(p)?.name || '').length ? onesFor(p.name, mgrOf(p)?.name || '').slice(0, 5).map(o => `<div class="kr"><div class="t">${esc(o.notes)}<div class="sub">${esc(o.owner)} and ${esc(o.with)} · ${esc(dateShort(o.at))}</div></div></div>`).join('') : '<div class="sub">No one to ones logged.</div>'}</div></section>
+    <section class="card"><div class="sec-h"><h2>Feedback</h2><span class="sub">${plural(fbFor(p.name).length, 'note', 'notes')}</span></div>
+      ${p.name !== e.name ? `<form data-submit="addfb" style="display:flex;flex-direction:column;gap:8px"><label class="f">Give feedback<input type="text" id="fb-text" placeholder="Be specific about what they did"></label>
+        <div class="row"><label class="f">Kind<select id="fb-kind"><option>Praise</option><option>Improvement</option></select></label><button class="btn sm" type="submit">Send</button></div></form>` : ''}
+      <div class="list">${fbFor(p.name).length ? fbFor(p.name).slice(0, 6).map(x => `<div class="kr"><div class="t">${esc(x.text)}<div class="sub">${esc(x.from)} · ${esc(dateShort(x.at))}</div></div>${chip(x.kind, FBTONE[x.kind])}</div>`).join('') : '<div class="sub">No feedback yet.</div>'}</div></section>
+    <section class="card"><div class="sec-h"><h2>Documents</h2>${docsFor(p.name).some(d => d.status === 'Awaiting signature') ? chip('Signature outstanding', 'warn') : ''}</div>
+      <div class="list">${docsFor(p.name).length ? docsFor(p.name).map(d => `<div class="kr"><div class="t">${esc(d.name)}<div class="sub">${esc(d.type)} · ${esc(dateShort(d.at))}</div></div>
+        <div class="acts">${chip(d.status, DOCST[d.status])}${hr && d.status === 'Awaiting signature' ? `<button class="btn quiet sm" data-act="signdoc" data-id="${d.id}">Mark signed</button>` : ''}</div></div>`).join('') : '<div class="sub">No documents on file.</div>'}</div>
+      ${hr ? `<form class="row" data-submit="adddoc" style="align-items:flex-end"><label class="f grow">Request a document<input type="text" id="doc-name" placeholder="e.g. Updated contract"></label><button class="btn sm" type="submit">Request</button></form>` : ''}</section>
+    <section class="card"><div class="sec-h"><h2>Reviews</h2></div>
+      <div class="list">${S.cycles.map(c => ({c, r: revOf(c.id, p.name)})).filter(x => x.r).map(({c, r}) => `<div class="kr"><div class="t">${esc(c.name)}
+        <div class="sub">${r.self ? 'Self ' + r.self.rating : 'No self-review'}${r.mgr ? ' · ' + esc(r.mgr.by) + ' ' + r.mgr.rating + ' · ' + esc(RATINGS[r.mgr.rating]) : ''}</div>
+        ${r.mgr ? `<div>${esc(r.mgr.text)}</div>` : ''}</div>${chip(REVST[revStage(r)][0], REVST[revStage(r)][1])}</div>`).join('') || '<div class="sub">No reviews recorded.</div>'}</div></section>
+    <section class="card"><div class="sec-h"><h2>Employment</h2>${dueReview(p) ? chip('Review due', 'acc') : ''}</div>
+      <div class="list">
+        <div class="kr"><div class="t">Contract<div class="sub">${esc(p.contract || 'Not recorded')}${p.notice ? ' · ' + esc(p.notice) + ' notice' : ''}</div></div></div>
+        <div class="kr"><div class="t">Started<div class="sub">${esc(p.joined ? new Date(p.joined).toLocaleDateString(undefined, {day: 'numeric', month: 'long', year: 'numeric'}) : 'Not recorded')}</div></div></div>
+        <div class="kr"><div class="t">Next review<div class="sub">${esc(p.review ? new Date(p.review).toLocaleDateString(undefined, {day: 'numeric', month: 'long', year: 'numeric'}) : 'Not scheduled')}</div></div>${r && r.ix >= 110 ? chip('Delivering ' + r0(r.ix) + '%', 'vio') : ''}</div>
+        ${canSeePay(e, p) ? `<div class="kr"><div class="t">Salary<div class="sub">${esc(p.salary ? money(p.salary) + ' a year' : 'Not recorded')}</div></div></div>`
+          : '<div class="kr"><div class="t">Salary<div class="sub">Visible to HR and the CEO only</div></div></div>'}
+      </div></section>
+    <section class="card"><div class="sec-h"><h2>Leave</h2><span class="sub">${leaveBal(p.name)} of ${ALLOWANCE} days left</span></div>
+      <div class="list">${leaveFor(p.name).length ? leaveFor(p.name).slice(0, 5).map(l => `<div class="kr"><div class="t">${esc(l.type)}<div class="sub">${esc(new Date(l.from).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}))} to ${esc(new Date(l.to).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}))} · ${plural(l.days, 'day', 'days')}${l.apBy ? ' · approved by ' + esc(l.apBy) : ''}</div></div>${chip(l.status, l.status === 'Approved' ? 'good' : l.status === 'Requested' ? 'warn' : '')}</div>`).join('') : '<div class="sub">No leave recorded this year.</div>'}</div></section>
+    <section class="card"><div class="sec-h"><h2>Welfare</h2></div>
+      ${welfareFlag(p.name) ? `<div class="banner info"><span>${esc(welfareFlag(p.name))}</span></div>` : ''}
+      <div class="list">${hist.length ? hist.map(x => `<div class="kr"><div class="t">${esc(WLOAD[x.workload])} workload · feeling ${esc(MOOD[x.mood].toLowerCase())}${x.note ? `<div class="sub">${esc(x.note)}</div>` : ''}</div>${chip(x.workload + '/5', x.workload >= 4 ? 'warn' : '')}</div>`).join('') : '<div class="sub">No check-ins in the last 4 weeks.</div>'}</div></section>
+    <section class="card"><div class="sec-h"><h2>People action</h2></div>
+      ${note ? `<div class="kr"><div class="t"><b>${esc(note.action)}</b><div class="sub">Set by ${esc(note.by)} on ${esc(dateShort(note.at))}</div>${note.text ? `<div>${esc(note.text)}</div>` : ''}</div></div>` : '<p class="sub">No action recorded.</p>'}
+      ${hr ? `<form data-submit="savenote-hr" style="display:flex;flex-direction:column;gap:8px;margin-top:12px">
+        <label class="f">Action<select id="hr-act"><option value="">Choose an action</option>${['Offering support', 'Performance improvement plan', 'Ready for more responsibility'].map(x => `<option${note && note.action === x ? ' selected' : ''}>${x}</option>`).join('')}</select></label>
+        <label class="f">Context<input type="text" id="hr-note" value="${esc(note?.text || '')}" placeholder="What was agreed, and with whom"></label>
+        <div class="row"><button class="btn sm" type="submit">Record</button>${note ? '<button type="button" class="btn quiet sm" data-act="clearhr">Clear</button>' : ''}</div>
+        <p class="sub">A flag is a prompt for a conversation. Record what was agreed with the person, not just the score.</p></form>` : ''}</section>
+  </div></div>`;
+}
+
+function orgNode(p, e, depth) {
+  const kids = directs(p).filter(k => !subFilter || !k.sub || k.sub === subFilter);
+  return `<li><div class="orgc"><div class="person-h">${avatar(p.name, true)}<div style="min-width:0"><div><b>${dosLink(e, p)}</b> ${chip(ROLES[p.role] || p.role, ROLE_TONE[p.role])}</div>
+    <div class="sub">${esc(p.title || '')}${p.sub ? ' · ' + esc(where(p)) : ''}${kids.length ? ' · ' + plural(kids.length, 'direct report', 'direct reports') : ''}</div></div></div></div>
+    ${kids.length ? `<ul>${kids.map(k => orgNode(k, e, depth + 1)).join('')}</ul>` : ''}</li>`;
+}
 function viewPeople(e) {
   const ceo = e.role === 'ceo' || e.role === 'hr';
   const inSub = S.people.filter(p => !subFilter || !p.sub || p.sub === subFilter);
@@ -680,11 +1217,18 @@ function viewPeople(e) {
   const fopt = (v, cur, l) => `<option value="${esc(v)}"${cur === v ? ' selected' : ''}>${esc(l)}</option>`;
   const roleOpts = sel => (e.role === 'ceo' ? ['member', 'manager', 'hr', 'ceo'] : ['member', 'manager', 'hr']).map(r => `<option value="${r}"${sel === r ? ' selected' : ''}>${ROLES[r]}</option>`).join('');
   const subOpts = sel => `<option value="">Group-level</option>` + SUBS.map(x => `<option${sel === x ? ' selected' : ''}>${esc(x)}</option>`).join('');
-  return `${pageHead('People', ceo ? 'Add people and set their subsidiary, role and team. Teams only match within a subsidiary.' : 'Everyone in the group, with subsidiary, role and team.')}
+  const roots = S.people.filter(p => !p.mgr);
+  const tabs = `<div class="seg" role="tablist" aria-label="Directory view">${[['table', 'Table'], ['org', 'Org chart']].map(([v, l]) =>
+    `<button role="tab" aria-selected="${dirView === v}" data-act="dirview" data-v="${v}">${l}</button>`).join('')}</div>`;
+  if (dirView === 'org') return `${pageHead('Directory', 'Who reports to whom. Approvals follow these lines.')}${tabs}
+    <div class="card"><ul class="org">${roots.map(p => orgNode(p, e, 0)).join('')}</ul></div>`;
+  return `${pageHead('Directory', ceo ? 'Add people and set their subsidiary, role, team and who they report to. Approvals follow the reporting line.' : 'Everyone in the group, with subsidiary, role and team.')}${tabs}
   ${ceo ? `<form class="card" data-submit="addperson"><h3>Add a person</h3><div class="row"><input type="text" id="pe-name" placeholder="Name" aria-label="Name" class="grow"><input type="email" id="pe-email" placeholder="Email" aria-label="Email" class="grow">
     <select id="pe-sub" aria-label="Subsidiary">${subOpts('')}</select>
     <select id="pe-role" aria-label="Role">${roleOpts('member')}</select>
-    <input type="text" id="pe-team" placeholder="Team" aria-label="Team" style="width:140px"><button class="btn" type="submit">Add</button></div></form>` : ''}
+    <input type="text" id="pe-team" placeholder="Team" aria-label="Team" style="width:140px">
+    <select id="pe-mgr" aria-label="Reports to"><option value="">Reports to…</option>${S.people.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select>
+    <button class="btn" type="submit">Add</button></div></form>` : ''}
   <div class="card"><div class="row" style="align-items:flex-end;margin-bottom:12px">
     <label class="f grow" style="flex-basis:220px">Search<input type="search" id="pf-q" data-pf="q" value="${esc(pf.q)}" placeholder="Search by name or email"></label>
     <label class="f">Subsidiary<select id="pf-sub" data-chg="sub">${fopt('', subFilter, 'All')}${SUBS.map(x => fopt(x, subFilter, x)).join('')}</select></label>
@@ -692,15 +1236,16 @@ function viewPeople(e) {
     <label class="f">Role<select id="pf-role" data-pf="role">${fopt('', pf.role, 'All roles')}${['ceo', 'hr', 'manager', 'member'].map(r => fopt(r, pf.role, ROLES[r])).join('')}</select></label>
     ${filtered ? '<button class="btn quiet sm" data-act="clearpf">Clear filters</button>' : ''}</div>
     <p class="sub" style="margin:0 0 8px">Showing ${list.length} of ${S.people.length} ${S.people.length === 1 ? 'person' : 'people'}</p>
-    <div class="tblwrap"><table><thead><tr><th>Name</th><th>Email</th><th>Subsidiary</th><th>Role</th><th>Team</th>${ceo ? '<th></th>' : ''}</tr></thead><tbody>
-  ${list.length ? list.map(p => ceo && (e.role === 'ceo' || p.role !== 'ceo') ? `<tr><td><div class="person-h">${avatar(p.name, true)}<b>${esc(p.name)}</b></div></td>
+    <div class="tblwrap"><table><thead><tr><th>Name</th><th>Email</th><th>Subsidiary</th><th>Role</th><th>Team</th><th>Reports to</th>${ceo ? '<th></th>' : ''}</tr></thead><tbody>
+  ${list.length ? list.map(p => ceo && (e.role === 'ceo' || p.role !== 'ceo') ? `<tr><td><div class="person-h">${avatar(p.name, true)}<b>${dosLink(e, p)}</b></div></td>
     <td><input type="email" id="pr-e-${p.id}" value="${esc(p.email || '')}" aria-label="Email" style="width:260px"></td>
     <td><select id="pr-s-${p.id}" aria-label="Subsidiary">${subOpts(p.sub)}</select></td>
     <td><select id="pr-r-${p.id}" aria-label="Role">${roleOpts(p.role)}</select></td>
     <td><input type="text" id="pr-t-${p.id}" value="${esc(p.team || '')}" aria-label="Team" style="width:140px"></td>
+    <td><select id="pr-m-${p.id}" aria-label="Reports to"><option value="">Nobody</option>${S.people.filter(x => x.id !== p.id).map(x => `<option value="${x.id}"${p.mgr === x.id ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select></td>
     <td><div class="row"><button class="btn sm" data-act="saveperson" data-id="${p.id}">Save</button>${confirmDel === p.id ? `<button class="btn bad sm" data-act="delperson" data-id="${p.id}">Confirm</button><button class="btn quiet sm" data-act="cancel">Cancel</button>` : `<button class="btn quiet sm" data-act="askdel" data-id="${p.id}">Remove</button>`}</div></td></tr>`
-    : `<tr><td><div class="person-h">${avatar(p.name, true)}<b>${esc(p.name)}</b></div></td><td>${esc(p.email || '—')}</td><td>${p.sub ? chip(p.sub, SUB_TONE[p.sub] || '') : chip('Group-level')}</td><td>${chip(ROLES[p.role] || p.role, ROLE_TONE[p.role])}</td><td>${esc(p.team || '—')}</td>${ceo ? '<td></td>' : ''}</tr>`).join('')
-    : `<tr><td colspan="6" class="empty">${filtered ? 'No one matches these filters.' : 'No people yet.'}</td></tr>`}</tbody></table></div></div>`;
+    : `<tr><td><div class="person-h">${avatar(p.name, true)}<b>${dosLink(e, p)}</b></div></td><td>${esc(p.email || '—')}</td><td>${p.sub ? chip(p.sub, SUB_TONE[p.sub] || '') : chip('Group-level')}</td><td>${chip(ROLES[p.role] || p.role, ROLE_TONE[p.role])}</td><td>${esc(p.team || '—')}</td><td>${esc(mgrOf(p)?.name || '—')}</td>${ceo ? '<td></td>' : ''}</tr>`).join('')
+    : `<tr><td colspan="7" class="empty">${filtered ? 'No one matches these filters.' : 'No people yet.'}</td></tr>`}</tbody></table></div></div>`;
 }
 
 function authView() {
@@ -723,21 +1268,23 @@ function build() {
   if (!realMe()) return authView();
   const real = realMe();
   const e = eff(), appr = e.role === 'manager' || e.role === 'ceo';
-  const pend = appr ? pendingFor(e).length : 0;
+  const pend = appr ? pendingFor(e).length + revsFor(e).length : 0;
   const nav = [['dash', 'Dashboard', 'Overview'], ['lead', 'Leaderboard', 'Overview'], ['okrs', 'OKRs', 'Goals'], ...(appr ? [['appr', 'Approvals', 'Goals']] : []),
-    ['stand', 'Standup', 'Weekly rhythm'], ['review', 'Friday Review', 'Weekly rhythm'], ...(e.role === 'ceo' || e.role === 'hr' ? [['people', 'People', 'Company']] : [])];
+    ['daily', 'Daily log', 'Rhythm'], ['stand', 'Standup', 'Rhythm'], ['review', 'Friday Review', 'Rhythm'],
+    ...(isGroup(e) || e.role === 'manager' ? [['perf', 'Performance', 'People']] : []), ['rev', 'Reviews', 'People'], ...(isGroup(e) || e.role === 'manager' ? [['hire', 'Hiring', 'People']] : []), ['welf', 'Welfare and leave', 'People'],
+    ...(isGroup(e) ? [['people', 'Directory', 'People']] : [])];
   if (!nav.some(t => t[0] === tab)) tab = 'dash';
-  const views = {dash: viewDash, lead: viewLead, okrs: viewOkrs, appr: viewApprovals, stand: viewStand, review: viewReview, people: viewPeople};
+  const views = {hire: viewHire, rev: viewRev, daily: viewDaily, dash: viewDash, lead: viewLead, okrs: viewOkrs, appr: viewApprovals, stand: viewStand, review: viewReview, people: viewPeople, perf: viewPerf, welf: viewWelf};
   const others = S.people.filter(p => p.name !== real.name);
   const groups = [...new Set(nav.map(n => n[2]))];
-  const page = nav.find(n => n[0] === tab)[1];
+  const page = dossier ? 'Person record' : nav.find(n => n[0] === tab)[1];
   return `<div class="app">
     <aside class="side${navOpen ? ' open' : ''}" aria-label="Sidebar">
       <div class="side-brand"><span class="logo" aria-hidden="true"></span><span>Team OKR Tracker</span></div>
       <nav aria-label="Main">${groups.map(g => `<div class="nav-lbl">${esc(g)}</div>${nav.filter(n => n[2] === g).map(([k, l]) =>
         `<button class="nav-i" data-act="tab" data-t="${k}"${tab === k ? ' aria-current="page"' : ''}>${icon(k)}<span>${esc(l)}</span>${k === 'appr' && pend ? `<span class="badge">${pend}</span>` : ''}</button>`).join('')}`).join('')}</nav>
       <div class="side-user"><div class="me">${avatar(e.name)}<div class="t"><b>${esc(e.name)}</b><span>${chip(ROLES[e.role] || e.role, ROLE_TONE[e.role])} ${esc(where(e))}</span></div></div>
-        <button class="btn ghost sm" data-act="signout">${icon('swap')}Switch user</button></div>
+        <button class="btn ghost sm" data-act="dossier" data-id="${e.id}">My record</button><button class="btn ghost sm" data-act="signout">${icon('swap')}Switch user</button></div>
     </aside>
     <div class="scrim${navOpen ? ' on' : ''}" data-act="closenav"></div>
     <div class="mainwrap">
@@ -746,7 +1293,7 @@ function build() {
         <span class="grow"></span>${chip('Demo data', 'amb')}
         ${isGroup(e) ? `<label class="viewas">Subsidiary <select id="subsel" class="sm" data-chg="sub"><option value="">All</option>${SUBS.map(x => `<option${subFilter === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select></label>` : ''}
         ${real.role === 'ceo' ? `<label class="viewas">Viewing as <select id="viewas" class="sm" data-chg="viewas"><option value="">me</option>${others.map(p => `<option value="${p.id}"${viewAs === p.id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>` : ''}</header>
-      <main class="content">${e.role === 'hr' ? '<div class="banner info"><span>HR can add and manage people. Everything else is read-only.</span></div>' : ''}${(viewAs && real.role === 'ceo') ? `<div class="banner info"><span>Previewing the app as ${esc(e.name)}. Anything you add is recorded as ${esc(e.name)}.</span></div>` : ''}${views[tab](e)}</main>
+      <main class="content">${e.role === 'hr' ? '<div class="banner info"><span>HR can add and manage people. Everything else is read-only.</span></div>' : ''}${(viewAs && real.role === 'ceo') ? `<div class="banner info"><span>Previewing the app as ${esc(e.name)}. Anything you add is recorded as ${esc(e.name)}.</span></div>` : ''}${dossier ? viewDossier(e) : views[tab](e)}</main>
       <footer class="foot"><span>Demo data. Changes are not saved and reset when you refresh.</span></footer>
     </div></div>`;
 }
@@ -757,7 +1304,7 @@ root.addEventListener('click', ev => {
   const b = ev.target.closest('[data-act]'); if (!b) return;
   
   const a = b.dataset.act, id = b.dataset.id, e = eff(), i = +b.dataset.i;
-  if (a === 'tab') { tab = b.dataset.t; confirmDel = null; navOpen = false; }
+  if (a === 'tab') { tab = b.dataset.t; confirmDel = null; navOpen = false; editing = null; dossier = null; }
   else if (a === 'menu') navOpen = !navOpen;
   else if (a === 'closenav') navOpen = false;
   else if (a === 'wk') { const n = +b.dataset.n; if (n === 0) wk = curWeek(); else { const d = parseIso(wk); d.setDate(d.getDate() + 7 * n); wk = iso(d); } }
@@ -765,18 +1312,49 @@ root.addEventListener('click', ev => {
   else if (a === 'krdone') setKr(b.dataset.o, i, b.dataset.v === '1');
   else if (a === 'askdel') confirmDel = id;
   else if (a === 'cancel') confirmDel = null;
-  else if (a === 'addkr') { if (draft.krs.length < 20) draft.krs.push(''); }
-  else if (a === 'rmkr') { if (draft.krs.length > 2) draft.krs.splice(i, 1); }
+  else if (a === 'addkr') { if (draft.krs.length < 20) { draft.krs.push(''); draft.ms.push(null); } }
+  else if (a === 'rmkr') { if (draft.krs.length > 2) { draft.krs.splice(i, 1); draft.ms.splice(i, 1); } }
   else if (a === 'delokr') { confirmDel = null; del('okrs', id); }
   else if (a === 'approve') approve(b.dataset.o, i, true);
   else if (a === 'sendback') approve(b.dataset.o, i, false);
   else if (a === 'delstand') del('stand', id);
   else if (a === 'delperson') { confirmDel = null; del('people', id); }
-  else if (a === 'saveperson') upd('people', id, {email: val('pr-e-' + id).trim(), role: val('pr-r-' + id), sub: val('pr-s-' + id), team: val('pr-t-' + id).trim()}).then(ok => { if (ok) toast('Saved.'); });
-  else if (a === 'signout') { ff = FF0(); pf = {q: '', team: '', role: ''}; uid = null; viewAs = null; subFilter = ''; }
+  else if (a === 'saveperson') upd('people', id, {mgr: val('pr-m-' + id) || null, email: val('pr-e-' + id).trim(), role: val('pr-r-' + id), sub: val('pr-s-' + id), team: val('pr-t-' + id).trim()}).then(ok => { if (ok) toast('Saved.'); });
+  else if (a === 'signout') { openRole = null; hireTab = 'open'; openRev = null; day = null; dossier = null; perfTab = 'all'; editing = null; okrTab = null; ff = FF0(); pf = {q: '', team: '', role: ''}; uid = null; viewAs = null; subFilter = ''; }
   else if (a === 'signin') { uid = id; viewAs = null; subFilter = ''; tab = 'dash'; }
   else if (a === 'subfilter') subFilter = b.dataset.s || '';
   else if (a === 'subappr') { subFilter = b.dataset.s; tab = 'appr'; }
+  else if (a === 'editokr') { const o = S.okrs.find(x => x.id === id); if (o) editing = {id, obj: o.objective, krs: o.krs.map((k, j) => ({src: j, title: k.title, month: k.month}))}; }
+  else if (a === 'dossier') { dossier = id; navOpen = false; editing = null; }
+  else if (a === 'closedos') dossier = null;
+  else if (a === 'perftab') perfTab = b.dataset.v;
+  else if (a === 'dirview') dirView = b.dataset.v;
+  else if (a === 'openrev') openRev = b.dataset.n;
+  else if (a === 'newrole') openRole = openRole === 'new' ? null : 'new';
+  else if (a === 'cancelrole') openRole = null;
+  else if (a === 'hiretab') hireTab = b.dataset.v;
+  else if (a === 'holdrole' || a === 'reopenrole') { const r = S.roles.find(x => x.id === id); if (r) { r.status = a === 'holdrole' ? 'On hold' : 'Open'; commit(); } }
+  else if (a === 'hirecand') { const c = S.cands.find(x => x.id === id), r = c && S.roles.find(x => x.id === c.role);
+    if (c && r && !person(c.name)) { add('people', {name: c.name, email: c.email, role: 'member', sub: r.sub, team: r.team, mgr: (person(r.hm) || {}).id || null, title: r.title, joined: iso(new Date()), jd: r.jd || [], contract: 'Permanent', notice: '1 month', uid: null});
+      r.status = 'Filled'; commit(); toast(c.name + ' added to the directory.'); } }
+  else if (a === 'signdoc') { const d = S.docs.find(x => x.id === id); if (d && isGroup(e)) { d.status = 'Signed'; d.at = Date.now(); commit(); toast('Marked signed.'); } }
+  else if (a === 'cancelrev') openRev = null;
+  else if (a === 'opencycle') { if (isGroup(e)) { const y = curY(), h = curM() < 6 ? 'H1' : 'H2';
+      add('cycles', {name: h + ' ' + y + ' review', from: y + (h === 'H1' ? '-01-01' : '-07-01'), to: y + (h === 'H1' ? '-06-30' : '-12-31'), due: iso(new Date(Date.now() + 21 * 86400000)), status: 'Open'}); toast('Cycle opened.'); } }
+  else if (a === 'closecycle') { const c = liveCycle(); if (c && isGroup(e)) { c.status = 'Closed'; commit(); toast('Cycle closed.'); } }
+  else if (a === 'day') { const n = +b.dataset.n; day = n === 0 ? today() : shiftDay(curDay(), n); if (day > today()) day = today(); }
+  else if (a === 'deldaily') del('daily', id);
+  else if (a === 'delleave') del('leave', id);
+  else if (a === 'apleave' || a === 'rejleave') { const l = S.leave.find(x => x.id === id);
+    if (l && lbScope(e).has(l.owner) && l.owner !== e.name) { l.status = a === 'apleave' ? 'Approved' : 'Declined'; l.apBy = e.name; commit(); toast(a === 'apleave' ? 'Leave approved.' : 'Leave declined.'); } }
+  else if (a === 'clearhr') { const p = S.people.find(x => x.id === dossier); if (p && isGroup(e)) { delete p.hrnote; commit(); toast('Cleared.'); } }
+  else if (a === 'canceledit') editing = null;
+  else if (a === 'kmove') { const o = S.okrs.find(x => x.id === b.dataset.o); if (o && !o.rev) { submitRev(o, {objective: o.objective, krs: o.krs.map((k, j) => ({src: j, title: k.title, month: j === i ? curM() : k.month}))}, e); commit(); return; } }
+  else if (a === 'okrtab') { okrTab = b.dataset.v; editing = null; }
+  else if (a === 'addedkr') { if (editing) editing.krs.push({src: null, title: '', month: S.okrs.find(x => x.id === editing.id) && isPersonal(S.okrs.find(x => x.id === editing.id)) ? curM() : undefined}); }
+  else if (a === 'rmedkr') { if (editing) editing.krs.splice(i, 1); }
+  else if (a === 'cancelrev') { const o = S.okrs.find(x => x.id === id); if (o) { o.rev = null; commit(); toast('Change cancelled.'); } }
+  else if (a === 'apprev' || a === 'rejrev') { const o = S.okrs.find(x => x.id === id); if (o && o.rev && canApprove(e, o)) { if (a === 'apprev') applyRev(o, o.rev); o.rev = null; commit(); toast(a === 'apprev' ? 'Change approved.' : 'Change rejected.'); } }
   else if (a === 'clearff') ff[b.dataset.t] = FF0()[b.dataset.t];
   else if (a === 'clearpf') { pf = {q: '', team: '', role: ''}; subFilter = ''; }
   render();
@@ -789,15 +1367,20 @@ root.addEventListener('change', ev => {
   if (k === 'viewas') { viewAs = t.value || null; draft.owner = null; }
   else if (k === 'sub') subFilter = t.value;
   else if (k === 'owner') draft.owner = t.value;
+  else if (k === 'krmonth') draft.ms[+t.dataset.i] = +t.value;
+  else if (k === 'edmonth' && editing) editing.krs[+t.dataset.i].month = +t.value;
   else if (k === 'kr') setKr(t.dataset.o, +t.dataset.i, t.value === '1');
   else if (k === 'stand') upd('stand', t.dataset.id, {status: t.value});
+  else if (k === 'stage') upd('cands', t.dataset.id, {stage: t.value});
   render();
 });
 root.addEventListener('input', ev => {
   const t = ev.target;
   if (t.dataset.pf === 'q') { pf.q = t.value; return render(); }
   if (t.dataset.ff && t.dataset.ff.endsWith('.q')) { const [a, b] = t.dataset.ff.split('.'); ff[a][b] = t.value; return render(); }
-  if (t.dataset.draft === 'obj') draft.obj = t.value;
+  if (t.dataset.draft === 'ed-obj' && editing) editing.obj = t.value;
+  else if (t.dataset.draft === 'ed-kr' && editing) editing.krs[+t.dataset.i].title = t.value;
+  else if (t.dataset.draft === 'obj') draft.obj = t.value;
   else if (t.dataset.draft === 'kr') draft.krs[+t.dataset.i] = t.value;
 });
 root.addEventListener('submit', ev => {
@@ -805,10 +1388,77 @@ root.addEventListener('submit', ev => {
   const f = ev.target.dataset.submit;
   const e = eff(); if (!e) return;
   if (f === 'addokr') {
-    const krs = draft.krs.map(s => s.trim()).filter(Boolean), obj = draft.obj.trim();
+    const pairs = draft.krs.map((t, j) => ({t: t.trim(), m: draft.ms[j] ?? curM()})).filter(x => x.t), krs = pairs.map(x => x.t), obj = draft.obj.trim(), comp = draft.owner.startsWith('Company');
     if (!obj || krs.length < 2) return toast('Enter an objective and at least 2 key results.');
-    add('okrs', {objective: obj, owner: draft.owner.startsWith('Company') ? 'Company' : draft.owner, sub: draft.owner.startsWith('Company:') ? draft.owner.slice(8) : '', year: new Date().getFullYear(), krs: krs.map(t => ({title:t, pct:0, req:false, reqAt:0, apBy:''}))});
-    draft = {owner: draft.owner, obj:'', krs:['','']}; showForm = false;
+    okrTab = draft.owner.startsWith('Company') ? 'company' : 'personal';
+    add('okrs', {objective: obj, owner: draft.owner.startsWith('Company') ? 'Company' : draft.owner, sub: draft.owner.startsWith('Company:') ? draft.owner.slice(8) : '', year: new Date().getFullYear(), krs: pairs.map(x => ({title: x.t, pct: 0, req: false, reqAt: 0, apBy: '', month: comp ? undefined : x.m}))});
+    draft = {owner: draft.owner, obj:'', krs:['',''], ms:[null,null]}; showForm = false;
+  } else if (f === 'saveedit') {
+    const o = editing && S.okrs.find(x => x.id === editing.id); if (!o) { editing = null; return render(); }
+    const obj = editing.obj.trim(), krs = editing.krs.map(k => ({src: k.src, title: k.title.trim(), month: k.month})).filter(k => k.title);
+    if (!obj || krs.length < 2) return toast('Enter an objective and at least 2 key results.');
+    if (o.krs.some((k, j) => (k.pct === 100 || k.req) && !krs.some(x => x.src === j))) return toast('Key results that are approved or awaiting approval cannot be removed.');
+    submitRev(o, {objective: obj, krs}, e);
+    editing = null; commit();
+  } else if (f === 'adddaily') {
+    const t = val('dl-text').trim(); if (!t) return toast('Say what you did first.');
+    const n = val('dl-n').trim();
+    if (n && !(+n >= 0)) return toast('The figure must be a number.');
+    add('daily', {day: today(), owner: e.name, text: t, n: n === '' ? null : +n, unit: val('dl-unit').trim(), ts: Date.now()});
+    $('#dl-text').value = ''; $('#dl-n').value = ''; $('#dl-unit').value = '';
+  } else if (f === 'addrole') {
+    const ti = val('ro-title').trim(); if (!ti) return toast('Give the role a title.');
+    add('roles', {title: ti, team: val('ro-team').trim(), sub: val('ro-sub'), hm: val('ro-hm'), status: 'Open', opened: iso(new Date()), jd: []});
+    openRole = null; hireTab = 'open'; toast('Role opened.');
+  } else if (f === 'addcand') {
+    const rid = ev.submitter?.dataset.r || val('cd-role'), n = val('cd-name-' + rid).trim();
+    if (!n) return toast('Enter the candidate name.');
+    add('cands', {role: rid, name: n, email: n.toLowerCase().replace(/ /g, '.') + '@example.com', stage: 'Applied', at: Date.now(), note: ''});
+    toast('Candidate added.');
+  } else if (f === 'addone') {
+    const p = S.people.find(x => x.id === dossier), t = val('one-note').trim();
+    if (!p || !t) return toast('Write what you discussed.');
+    add('ones', {owner: e.name, with: p.name, at: Date.now(), notes: t}); toast('Saved.'); return;
+  } else if (f === 'addfb') {
+    const p = S.people.find(x => x.id === dossier), t = val('fb-text').trim();
+    if (!p || !t) return toast('Write the feedback first.');
+    add('fb', {to: p.name, from: e.name, kind: val('fb-kind'), text: t, at: Date.now()}); toast('Feedback sent.'); return;
+  } else if (f === 'adddoc') {
+    const p = S.people.find(x => x.id === dossier), t = val('doc-name').trim();
+    if (!p || !isGroup(e) || !t) return toast('Name the document first.');
+    add('docs', {owner: p.name, name: t, type: 'Policy', status: 'Awaiting signature', at: Date.now()}); toast('Requested.'); return;
+  } else if (f === 'saveself') {
+    const c = liveCycle(), t = val('rv-self').trim(); if (!c) return;
+    if (!t) return toast('Write a few words first.');
+    const ex = revOf(c.id, e.name), self = {text: t, rating: +val('rv-selfr'), at: Date.now()};
+    if (ex) upd('reviews', ex.id, {self}); else add('reviews', {cycle: c.id, owner: e.name, self, mgr: null});
+    toast('Sent to ' + approverOf({owner: e.name}) + '.');
+  } else if (f === 'savemgr') {
+    const c = liveCycle(), p = person(openRev), t = val('rv-mgr').trim(); if (!c || !p) return;
+    if (!reportsTo(p, e)) return toast('They do not report to you.');
+    if (!t) return toast('Write a few words first.');
+    const ex = revOf(c.id, p.name); if (!ex) return;
+    upd('reviews', ex.id, {mgr: {text: t, rating: +val('rv-mgrr'), by: e.name, at: Date.now()}});
+    openRev = null; toast('Review submitted.');
+  } else if (f === 'addleave') {
+    const from = val('lv-from'), to = val('lv-to');
+    if (!from || !to) return toast('Pick both dates.');
+    if (to < from) return toast('The end date is before the start date.');
+    const days = Math.round((parseIso(to) - parseIso(from)) / 86400000) + 1;
+    if (days > leaveBal(e.name)) return toast(`That is ${days} days and only ${leaveBal(e.name)} are left this year.`);
+    add('leave', {owner: e.name, from, to, days, type: val('lv-type'), status: 'Requested', by: e.name, at: Date.now(), apBy: ''});
+    toast('Sent to ' + approverOf({owner: e.name}) + ' for approval.');
+  } else if (f === 'savewelf') {
+    const load = +val('wf-load'), mood = +val('wf-mood'), note = val('wf-note').trim();
+    const ex = S.welfare.find(x => x.owner === e.name && x.week === wk);
+    if (ex) upd('welfare', ex.id, {workload: load, mood, note, enps: val('wf-enps') === '' ? (ex.enps ?? null) : +val('wf-enps'), ts: Date.now()});
+    else add('welfare', {week: wk, owner: e.name, workload: load, mood, note, enps: val('wf-enps') === '' ? null : +val('wf-enps'), ts: Date.now()});
+    toast('Check-in saved.');
+  } else if (f === 'savenote-hr') {
+    const p = S.people.find(x => x.id === dossier); const action = val('hr-act');
+    if (!p || !isGroup(e)) return;
+    if (!action) return toast('Choose an action first.');
+    p.hrnote = {action, text: val('hr-note').trim(), by: e.name, at: Date.now()}; commit(); toast('Recorded.'); return;
   } else if (f === 'addstand') {
     const t = val('su-text').trim(); if (!t) return toast('Enter an activity first.');
     add('stand', {week: wk, owner: e.name, text: t, status: 'Not done', ts: Date.now()}); $('#su-text').value = '';
@@ -816,7 +1466,7 @@ root.addEventListener('submit', ev => {
     const n = val('pe-name').trim(); if (!n) return toast('Enter a name.');
     const em = val('pe-email').trim(); if (em && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) return toast('Enter a valid email address.');
     if (em && S.people.some(x => (x.email || '').toLowerCase() === em.toLowerCase())) return toast('That email is already in use.');
-    add('people', {name: n, email: em, role: val('pe-role'), sub: val('pe-sub'), team: val('pe-team').trim(), uid: null}); $('#pe-name').value = ''; $('#pe-email').value = ''; $('#pe-team').value = '';
+    add('people', {name: n, email: em, role: val('pe-role'), sub: val('pe-sub'), team: val('pe-team').trim(), mgr: val('pe-mgr') || null, uid: null}); $('#pe-name').value = ''; $('#pe-email').value = ''; $('#pe-team').value = '';
   }
   render();
 });
