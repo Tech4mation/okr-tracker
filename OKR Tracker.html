@@ -481,8 +481,8 @@ const teamsIn = names => [...new Set([...names].map(n => person(n)?.team).filter
 const hit = (q, ...t) => !q.trim() || t.some(x => String(x || '').toLowerCase().includes(q.trim().toLowerCase()));
 function fbar(t, o = {}) {
   const f = ff[t], dirty = Object.values(f).some(Boolean);
-  const sel = (k, label, all, list) => `<label class="f">${label}<select id="ff-${t}-${k}" data-ff="${t}.${k}"><option value="">${all}</option>${list.map(x => { const [v, l] = Array.isArray(x) ? x : [x, x]; return `<option value="${esc(v)}"${f[k] === v ? ' selected' : ''}>${esc(l)}</option>`; }).join('')}</select></label>`;
   if (o.team && f.team && !o.team.includes(f.team)) f.team = '';
+  const sel = (k, label, all, list) => `<label class="f">${label}<select id="ff-${t}-${k}" data-ff="${t}.${k}"><option value="">${all}</option>${list.map(x => { const [v, l] = Array.isArray(x) ? x : [x, x]; return `<option value="${esc(v)}"${f[k] === v ? ' selected' : ''}>${esc(l)}</option>`; }).join('')}</select></label>`;
   return `<div class="card fbar"><div class="row" style="align-items:flex-end">
     <label class="f grow" style="flex-basis:220px">Search<input type="search" id="ff-${t}-q" data-ff="${t}.q" value="${esc(f.q)}" placeholder="${esc(o.ph || 'Search')}"></label>
     ${o.team && o.team.length > 1 ? sel('team', 'Team', 'All teams', o.team) : ''}${o.st ? sel('st', o.stLabel || 'Status', o.stAll || 'All', o.st) : ''}
@@ -612,33 +612,38 @@ function viewOkrs(e) {
     <div class="row"><button type="button" class="btn quiet" data-act="newokr">Cancel</button><button class="btn" type="submit">Save OKR</button></div></div></form>` : '';
   return `${pageHead('OKRs', 'Annual goals and their key results. Each key result is worth an equal share of its OKR.', newBtn)}
   ${form}
+  ${allCompany.length + allPeople.length > 1 ? fbar('okrs', {ph: 'Search objectives, key results or people', team: teamsIn(allPeople), st: KRST, stLabel: 'Key results', stAll: 'Any', count: `Showing ${company.length + people.reduce((t, n) => t + personOkrs(n).filter(shown).length, 0)} of ${allCompany.length + allPeople.reduce((t, n) => t + personOkrs(n).length, 0)} OKRs`}) : ''}
   <section class="block"><div class="sec-h"><h2>Company OKRs</h2>${company.length ? `<span class="sub">Average <span class="num">${r0(companyPct(e))}%</span></span>` : ''}</div><p class="sub" style="margin:-4px 0 4px">Goals for the whole company or one subsidiary.</p>
-    ${company.length ? company.map(o => okrCard(o, e)).join('') : `<div class="card">${empty('No company OKRs yet.' + (e.role === 'ceo' ? ' Choose New OKR and set the owner to Whole company or a subsidiary.' : ''))}</div>`}</section>
+    ${company.length ? company.map(o => okrCard(o, e)).join('') : `<div class="card">${empty((f.q || f.st || f.team ? 'No company OKRs match these filters.' : 'No company OKRs yet.') + (e.role === 'ceo' ? ' Choose New OKR and set the owner to Whole company or a subsidiary.' : ''))}</div>`}</section>
   <section class="block"><div class="sec-h"><h2>${e.role === 'member' ? 'My OKRs' : 'Personal OKRs'}</h2></div>
     ${people.length ? people.map(nm => `<div class="block"><div class="person-h">${avatar(nm, true)}<b>${esc(nm)}</b><span class="sub">Annual progress <span class="num">${r0(personPct(nm))}%</span></span></div>${personOkrs(nm).filter(shown).map(o => okrCard(o, e)).join('')}</div>`).join('')
-      : `<div class="card">${empty('No personal OKRs yet.', ow.length ? '<button class="btn" data-act="newokr">Create the first OKR</button>' : '')}</div>`}</section>`;
+      : `<div class="card">${empty(f.q || f.st || f.team ? 'No personal OKRs match these filters.' : 'No personal OKRs yet.', ow.length ? '<button class="btn" data-act="newokr">Create the first OKR</button>' : '')}</div>`}</section>`;
 }
 
 function viewApprovals(e) {
-  const list = pendingFor(e);
+  const all = pendingFor(e), f = ff.appr;
+  const list = all.filter(({o, k}) => (!f.team || person(o.owner)?.team === f.team) && hit(f.q, o.owner, o.objective, k.title));
   return `${pageHead('Approvals', 'Key results your team marked complete. Approving adds to their progress and to this week\'s gain.')}
+  ${all.length > 1 ? fbar('appr', {ph: 'Search by person, OKR or key result', team: teamsIn(all.map(x => x.o.owner)), count: `Showing ${list.length} of ${all.length}`}) : ''}
   <div class="card">${list.length ? `<div class="list">${list.map(({o, k, i}) => `<div class="kr"><div class="person-h t">${avatar(o.owner)}<div style="min-width:0"><div><b>${esc(o.owner)}</b> <span class="sub">${esc(o.objective)}</span></div><div>${esc(k.title)}</div></div></div>
-    <div class="acts">${chip('Worth ' + fmt(100 / o.krs.length) + '%')}<button class="btn sm" data-act="approve" data-o="${o.id}" data-i="${i}">Approve</button><button class="btn ghost sm" data-act="sendback" data-o="${o.id}" data-i="${i}">Send back</button></div></div>`).join('')}</div>` : empty('Nothing is waiting for you.')}</div>`;
+    <div class="acts">${chip('Worth ' + fmt(100 / o.krs.length) + '%')}<button class="btn sm" data-act="approve" data-o="${o.id}" data-i="${i}">Approve</button><button class="btn ghost sm" data-act="sendback" data-o="${o.id}" data-i="${i}">Send back</button></div></div>`).join('')}</div>` : empty(all.length ? 'No requests match these filters.' : 'Nothing is waiting for you.')}</div>`;
 }
 
 function grouped(items, key) { const m = new Map(); items.forEach(x => { const k = x[key]; if (!m.has(k)) m.set(k, []); m.get(k).push(x); }); return [...m].sort((a, b) => a[0].localeCompare(b[0])); }
 const statTone = st => st === 'Done' ? 'good' : st === 'Blocked' ? 'bad' : st === 'In progress' ? 'warn' : '';
 
 function viewStand(e) {
-  const sc = scope(e), items = S.stand.filter(x => x.week === wk && sc.has(x.owner));
+  const sc = scope(e), weekItems = S.stand.filter(x => x.week === wk && sc.has(x.owner)), f = ff.stand;
+  const items = weekItems.filter(x => (!f.st || x.status === f.st) && hit(f.q, x.owner, x.text));
   return `${pageHead('Weekly Standup', 'What everyone is working on this week.', weekNav())}
   ${e.role !== 'hr' ? `<form class="card" data-submit="addstand"><label class="lbl" for="su-text">Add an activity</label><div class="row"><input type="text" class="grow" id="su-text" placeholder="What are you working on?"><button class="btn" type="submit">Add</button></div></form>` : ''}
+  ${weekItems.length > 1 ? fbar('stand', {ph: 'Search by person or activity', st: SSTAT, count: `Showing ${items.length} of ${weekItems.length} activities`}) : ''}
   ${items.length ? grouped(items, 'owner').map(([o, list]) => { const d = list.filter(x => x.status === 'Done').length;
     return `<section class="card"><div class="person-h">${avatar(o)}<b class="grow">${esc(o)}</b><span class="sub num">${d} of ${list.length} done</span></div>${bar(d / list.length * 100, 'good')}
     <div class="list">${list.sort((a, b) => (a.ts || 0) - (b.ts || 0)).map(x => { const can = e.role !== 'hr' && (x.owner === e.name || e.role === 'ceo');
       return `<div class="kr"><div class="t">${esc(x.text)}</div><div class="acts"><select class="sm" data-chg="stand" data-id="${x.id}" aria-label="Status"${can ? '' : ' disabled'}>${opts(SSTAT, x.status)}</select>
         ${can ? `<button class="btn quiet sm" data-act="delstand" data-id="${x.id}" aria-label="Delete activity">Delete</button>` : ''}</div></div>`; }).join('')}</div></section>`; }).join('')
-    : `<div class="card">${empty('No standup entries for this week yet.')}</div>`}`;
+    : `<div class="card">${empty(weekItems.length ? 'No activities match these filters.' : 'No standup entries for this week yet.')}</div>`}`;
 }
 
 function viewReview(e) {
@@ -647,9 +652,11 @@ function viewReview(e) {
   const noteId = n => wk + '_' + (person(n)?.id || 'owner');
   const notes = new Map(S.wnotes.filter(x => x.week === wk).map(x => [x.owner, x]));
   const names = [...new Set([...S.stand.filter(x => x.week === wk && sc.has(x.owner)).map(x => x.owner), ...notes.keys(), ...(e.role !== 'hr' ? [e.name] : [])])].filter(n => sc.has(n)).sort((a, b) => a.localeCompare(b));
+  const rf = ff.review, shownNames = names.filter(n => hit(rf.q, n) && (!rf.st || (rf.st === 'with') === !!notes.get(n)?.text));
   return `${pageHead('Friday Review', 'Look back on the week: what your standup covered, plus blockers, achievements and feedback.', weekNav())}
   ${fri ? '<div class="banner"><span>It is Friday. Add your comments on blockers, achievements and feedback.</span></div>' : ''}
-  ${names.length ? names.map(o => {
+  ${names.length > 1 ? fbar('review', {ph: 'Search by name', st: [['with', 'Comments added'], ['without', 'No comments yet']], stLabel: 'Comments', count: `Showing ${shownNames.length} of ${names.length} people`}) : ''}
+  ${shownNames.length ? shownNames.map(o => {
     const act = S.stand.filter(x => x.week === wk && x.owner === o).sort((a, b) => (a.ts || 0) - (b.ts || 0));
     const d = act.filter(x => x.status === 'Done').length;
     const nt = notes.get(o), canN = e.role !== 'hr' && (o === e.name || e.role === 'ceo');
@@ -659,7 +666,7 @@ function viewReview(e) {
       <div style="display:flex;flex-direction:column;gap:8px"><label class="lbl" for="wn-${noteId(o)}">Blockers, achievements or feedback</label>
         ${canN ? `<textarea id="wn-${noteId(o)}" placeholder="Anything blocking you, wins from the week, or feedback. Include work outside your key results.">${esc(nt?.text || '')}</textarea><div class="end" style="display:flex;justify-content:flex-end"><button class="btn sm" data-act="savenote" data-o="${esc(o)}">Save comments</button></div>`
           : `<div${nt && nt.text ? '' : ' class="sub"'}>${nt && nt.text ? esc(nt.text) : 'No comments yet.'}</div>`}</div></section>`;
-  }).join('') : `<div class="card">${empty('Nothing to review for this week yet.')}</div>`}`;
+  }).join('') : `<div class="card">${empty(names.length ? 'No one matches these filters.' : 'Nothing to review for this week yet.')}</div>`}`;
 }
 
 function viewPeople(e) {
@@ -709,7 +716,7 @@ function render() {
   const keep = [...root.querySelectorAll('input[id]:not([type=file]),textarea[id],select[id]')].map(el => ({id: el.id, v: el.value}));
   const ae = document.activeElement, focus = ae && ae.id && root.contains(ae) ? {id: ae.id, s: ae.selectionStart, e: ae.selectionEnd} : null;
   root.innerHTML = build();
-  keep.forEach(k => { const el = document.getElementById(k.id); if (el && el.value !== k.v && !/^(ok-owner|subsel|pf-sub|pf-team|pf-role)$/.test(k.id)) { if (el.tagName === 'SELECT' && ![...el.options].some(o => o.value === k.v)) return; el.value = k.v; } });
+  keep.forEach(k => { const el = document.getElementById(k.id); if (el && el.value !== k.v && !/^(ok-owner|subsel|pf-sub|pf-team|pf-role|ff-.*)$/.test(k.id)) { if (el.tagName === 'SELECT' && ![...el.options].some(o => o.value === k.v)) return; el.value = k.v; } });
   if (focus) { const el = document.getElementById(focus.id); if (el) { el.focus(); try { if (focus.s != null) el.setSelectionRange(focus.s, focus.e); } catch (_) {} } }
 }
 function build() {
@@ -766,16 +773,18 @@ root.addEventListener('click', ev => {
   else if (a === 'delstand') del('stand', id);
   else if (a === 'delperson') { confirmDel = null; del('people', id); }
   else if (a === 'saveperson') upd('people', id, {email: val('pr-e-' + id).trim(), role: val('pr-r-' + id), sub: val('pr-s-' + id), team: val('pr-t-' + id).trim()}).then(ok => { if (ok) toast('Saved.'); });
-  else if (a === 'signout') { uid = null; viewAs = null; subFilter = ''; }
+  else if (a === 'signout') { ff = FF0(); pf = {q: '', team: '', role: ''}; uid = null; viewAs = null; subFilter = ''; }
   else if (a === 'signin') { uid = id; viewAs = null; subFilter = ''; tab = 'dash'; }
   else if (a === 'subfilter') subFilter = b.dataset.s || '';
   else if (a === 'subappr') { subFilter = b.dataset.s; tab = 'appr'; }
+  else if (a === 'clearff') ff[b.dataset.t] = FF0()[b.dataset.t];
   else if (a === 'clearpf') { pf = {q: '', team: '', role: ''}; subFilter = ''; }
   render();
 });
 root.addEventListener('change', ev => {
   const t = ev.target, k = t.dataset.chg;
   if (t.dataset.pf) { pf[t.dataset.pf] = t.value; return render(); }
+  if (t.dataset.ff) { const [a, b] = t.dataset.ff.split('.'); ff[a][b] = t.value; return render(); }
   if (!k) return;
   if (k === 'viewas') { viewAs = t.value || null; draft.owner = null; }
   else if (k === 'sub') subFilter = t.value;
@@ -787,6 +796,7 @@ root.addEventListener('change', ev => {
 root.addEventListener('input', ev => {
   const t = ev.target;
   if (t.dataset.pf === 'q') { pf.q = t.value; return render(); }
+  if (t.dataset.ff && t.dataset.ff.endsWith('.q')) { const [a, b] = t.dataset.ff.split('.'); ff[a][b] = t.value; return render(); }
   if (t.dataset.draft === 'obj') draft.obj = t.value;
   else if (t.dataset.draft === 'kr') draft.krs[+t.dataset.i] = t.value;
 });
