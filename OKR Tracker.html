@@ -44,7 +44,7 @@ h3{font-size:15px;margin:0}
 .grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
 .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
 input,select,textarea,button{font:inherit;color:var(--fg)}
-input[type=text],input[type=number],select,textarea{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:0;max-width:100%}
+input[type=text],input[type=email],input[type=search],input[type=number],select,textarea{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:0;max-width:100%}
 textarea{width:100%;min-height:64px;resize:vertical}
 input:disabled,select:disabled,textarea:disabled{opacity:.6;cursor:not-allowed}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -128,7 +128,7 @@ main{gap:32px;padding-top:28px}
 .chip{display:inline-flex;align-items:center;gap:4px;border-radius:99px;padding:2px 10px;font-size:12px;font-weight:600;line-height:1.5;background:var(--surface2);color:var(--muted);white-space:nowrap}
 .chip.good{background:var(--good-soft);color:var(--good)}.chip.warn{background:var(--warn-soft);color:var(--warn)}
 .chip.bad{background:var(--bad-soft);color:var(--bad)}.chip.acc{background:var(--accent-soft);color:var(--accent)}
-input[type=text],input[type=number],input[type=password],select{height:var(--ctl);border-radius:var(--r-sm);padding:0 12px}
+input[type=text],input[type=email],input[type=search],input[type=number],input[type=password],select{height:var(--ctl);border-radius:var(--r-sm);padding:0 12px}
 select{padding-right:8px}
 select.sm{height:32px;font-size:13px}
 textarea{border-radius:var(--r-sm);padding:10px 12px;line-height:1.45}
@@ -267,6 +267,17 @@ button.stat .l,button.stat .s{color:var(--fg)}
 
 .subrow{display:flex;align-items:center;gap:12px;width:100%;background:none;border:0;border-top:1px solid var(--line);text-align:left;font:inherit;color:inherit;cursor:pointer;margin:0 -8px;padding:12px 8px;width:calc(100% + 16px);border-radius:0}
 .subrow:hover{background:var(--surface2)}
+.subrow{cursor:default}
+.subhit{display:flex;align-items:center;gap:12px;flex:1;min-width:0;background:none;border:0;padding:0;font:inherit;color:inherit;text-align:left;cursor:pointer}
+.subhit::after{content:'›';color:var(--muted);font-size:20px;line-height:1}
+.pendlink{flex:none;border:0;border-radius:999px;padding:4px 10px;font:600 12px var(--sans);background:var(--amb-s);color:var(--amb);cursor:pointer}
+.pendlink:hover{filter:brightness(.95);text-decoration:underline}
+.rowlink{display:block;position:relative;width:calc(100% + 16px);margin:0 -8px;padding:12px 8px;background:none;border:0;border-radius:8px;font:inherit;color:inherit;text-align:left;cursor:pointer}
+.rowlink:hover{background:var(--surface2)}
+.rowlink .prog{display:flex;align-items:center;gap:12px}
+.list>.rowlink{border-top:1px solid var(--line);border-radius:0}
+.list>.rowlink:first-child{border-top:0;padding-top:12px}
+.list>.rowlink:last-child{padding-bottom:12px}
 .subrow.on{background:var(--ind-s)}
 .subrow .grow{display:flex;flex-direction:column;line-height:1.3;min-width:0}
 .subrow .subbar{flex:0 0 38%;min-width:60px}
@@ -501,8 +512,9 @@ function viewDash(e) {
   const subCard = isGroup(e) ? `<section class="card"><div class="sec-h"><h2>Subsidiaries</h2>${subFilter ? '<button class="btn quiet sm" data-act="subfilter" data-s="">Show all</button>' : '<span class="sub">Select one to filter the whole app</span>'}</div><div class="list">${SUBS.map(n => {
     const ps = S.people.filter(p => p.sub === n && p.role !== 'hr'), pct = ps.length ? ps.reduce((t, p) => t + personPct(p.name), 0) / ps.length : 0;
     const pend = S.okrs.filter(o => person(o.owner)?.sub === n).reduce((t, o) => t + o.krs.filter(k => k.req && k.pct !== 100).length, 0);
-    return `<button class="subrow${subFilter === n ? ' on' : ''}" data-act="subfilter" data-s="${esc(n)}"><span class="grow"><b>${esc(n)}</b><span class="sub">${plural(ps.length, 'person', 'people')}${pend ? ' · ' + pend + ' awaiting approval' : ''}</span></span><span class="subbar">${bar(pct)}</span><span class="pc">${r0(pct)}%</span></button>`; }).join('')}</div></section>` : '';
-  const okrRow = o => `<div><div class="kr"><div class="t"><b>${esc(o.objective)}</b><div class="sub">${plural(o.krs.length, 'key result', 'key results')}</div></div></div><div class="prog" style="margin-top:8px">${bar(okrPct(o))}<span class="pc">${r0(okrPct(o))}%</span></div></div>`;
+    const link = pend && e.role === 'ceo';
+    return `<div class="subrow${subFilter === n ? ' on' : ''}"><button class="subhit" data-act="subfilter" data-s="${esc(n)}" aria-pressed="${subFilter === n}"><span class="grow"><b>${esc(n)}</b><span class="sub">${plural(ps.length, 'person', 'people')}${pend && !link ? ' · ' + pend + ' awaiting approval' : ''}</span></span><span class="subbar">${bar(pct)}</span><span class="pc">${r0(pct)}%</span></button>${link ? `<button class="pendlink" data-act="subappr" data-s="${esc(n)}" title="Review ${esc(n)} requests">${pend} awaiting approval</button>` : ''}</div>`; }).join('')}</div></section>` : '';
+  const okrRow = o => `<button class="rowlink" data-act="tab" data-t="okrs" aria-label="Open OKRs: ${esc(o.objective)}"><span class="kr"><span class="t"><b>${esc(o.objective)}</b><span class="sub" style="display:block">${plural(o.krs.length, 'key result', 'key results')}</span></span></span><span class="prog" style="margin-top:8px">${bar(okrPct(o))}<span class="pc">${r0(okrPct(o))}%</span></span></button>`;
   const rows = lbRows(e);
   return `${monCall()}
   <section class="hero"><div><h1>Welcome back, ${esc(e.name.split(' ')[0])}</h1><p>${esc(ROLES[e.role] || e.role)} · ${esc(where(e))}${subFilter && isGroup(e) ? ' · showing ' + esc(subFilter) : ''}. Here is where things stand this week.</p></div>${weekNav(true)}</section>
@@ -654,7 +666,7 @@ function viewPeople(e) {
     <p class="sub" style="margin:0 0 8px">Showing ${list.length} of ${S.people.length} ${S.people.length === 1 ? 'person' : 'people'}</p>
     <div class="tblwrap"><table><thead><tr><th>Name</th><th>Email</th><th>Subsidiary</th><th>Role</th><th>Team</th>${ceo ? '<th></th>' : ''}</tr></thead><tbody>
   ${list.length ? list.map(p => ceo && (e.role === 'ceo' || p.role !== 'ceo') ? `<tr><td><div class="person-h">${avatar(p.name, true)}<b>${esc(p.name)}</b></div></td>
-    <td><input type="email" id="pr-e-${p.id}" value="${esc(p.email || '')}" aria-label="Email" style="width:210px"></td>
+    <td><input type="email" id="pr-e-${p.id}" value="${esc(p.email || '')}" aria-label="Email" style="width:260px"></td>
     <td><select id="pr-s-${p.id}" aria-label="Subsidiary">${subOpts(p.sub)}</select></td>
     <td><select id="pr-r-${p.id}" aria-label="Role">${roleOpts(p.role)}</select></td>
     <td><input type="text" id="pr-t-${p.id}" value="${esc(p.team || '')}" aria-label="Team" style="width:140px"></td>
@@ -736,6 +748,7 @@ root.addEventListener('click', ev => {
   else if (a === 'signout') { uid = null; viewAs = null; subFilter = ''; }
   else if (a === 'signin') { uid = id; viewAs = null; subFilter = ''; tab = 'dash'; }
   else if (a === 'subfilter') subFilter = b.dataset.s || '';
+  else if (a === 'subappr') { subFilter = b.dataset.s; tab = 'appr'; }
   else if (a === 'clearpf') { pf = {q: '', team: '', role: ''}; subFilter = ''; }
   render();
 });
