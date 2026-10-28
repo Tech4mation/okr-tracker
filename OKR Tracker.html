@@ -304,6 +304,8 @@ const fmt = n => String(Math.round(n*10)/10);
 const r0 = n => Math.round(n);
 
 let uid = null, pf = {q: '', team: '', role: ''};
+const FF0 = () => ({lead: {q: '', team: ''}, okrs: {q: '', team: '', st: ''}, appr: {q: '', team: ''}, stand: {q: '', st: ''}, review: {q: '', st: ''}});
+let ff = FF0();
 let wk = curWeek(), tab = 'dash', viewAs = null, confirmDel = null;
 let draft = {owner:null, obj:'', krs:['','']}, showForm = false, navOpen = false;
 
@@ -316,7 +318,7 @@ const SUB_TONE = {'NativeTalk': 'sky', 'Connect': 'tea', 'Cyber Villa': 'vio'};
 let subFilter = '';
 const isGroup = p => p.role === 'ceo' || p.role === 'hr';
 const where = p => [p.sub, p.team].filter(Boolean).join(' · ') || 'Group';
-const ownerLabel = o => o.owner === 'Company' ? (o.sub ? o.sub + ' · subsidiary' : 'Group-wide') : o.owner;
+const ownerLabel = o => o.owner === 'Company' ? (o.sub ? o.sub : 'Whole company') : o.owner;
 const cv = (o, e) => o.owner !== 'Company' || (isGroup(e) ? (!subFilter || !o.sub || o.sub === subFilter) : (!o.sub || o.sub === e.sub));
 const teamNames = p => { const s = new Set([p.name]); if (p.team) S.people.forEach(x => { if (x.team === p.team && x.sub === p.sub) s.add(x.name); }); return s; };
 function scope(p) { return isGroup(p) ? new Set([...(subFilter ? [] : [p.name]), ...S.people.filter(x => !subFilter || x.sub === subFilter).map(x => x.name)]) : p.role === 'manager' ? teamNames(p) : new Set([p.name]); }
@@ -450,7 +452,7 @@ const weekNav = (dark) => {
 };
 
 // ---------- views ----------
-const ownerOpts = (list, sel) => list.map(v => `<option value="${esc(v)}"${v === sel ? ' selected' : ''}>${esc(v === 'Company' ? 'Group-wide OKR' : v.startsWith('Company:') ? v.slice(8) + ' subsidiary OKR' : v)}</option>`).join('');
+const ownerOpts = (list, sel) => list.map(v => `<option value="${esc(v)}"${v === sel ? ' selected' : ''}>${esc(v === 'Company' ? 'Whole company' : v.startsWith('Company:') ? v.slice(8) + ' (subsidiary)' : v)}</option>`).join('');
 const ICONS = {
   dash: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
   lead: '<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/>',
@@ -474,6 +476,18 @@ const empty = (msg, btn = '') => `<div class="empty"><p>${esc(msg)}</p>${btn}</d
 const stat = (tone, label, num, sub, pct, to) => `<button class="stat ${tone}" data-act="tab" data-t="${to}" title="Open ${esc(label)}"><span class="l">${esc(label)}<svg class="go" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span><span class="n">${num}</span>${pct != null ? bar(pct, 'tone') : ''}<span class="s">${esc(sub)}</span></button>`;
 const tabBtn = (t, label, cls = 'ghost') => `<button class="btn ${cls} sm" data-act="tab" data-t="${t}">${esc(label)}</button>`;
 
+const KRST = [['open', 'Has open key results'], ['awaiting', 'Awaiting approval'], ['approved', 'Has approved key results'], ['complete', 'Fully complete']];
+const teamsIn = names => [...new Set([...names].map(n => person(n)?.team).filter(Boolean))].sort();
+const hit = (q, ...t) => !q.trim() || t.some(x => String(x || '').toLowerCase().includes(q.trim().toLowerCase()));
+function fbar(t, o = {}) {
+  const f = ff[t], dirty = Object.values(f).some(Boolean);
+  const sel = (k, label, all, list) => `<label class="f">${label}<select id="ff-${t}-${k}" data-ff="${t}.${k}"><option value="">${all}</option>${list.map(x => { const [v, l] = Array.isArray(x) ? x : [x, x]; return `<option value="${esc(v)}"${f[k] === v ? ' selected' : ''}>${esc(l)}</option>`; }).join('')}</select></label>`;
+  if (o.team && f.team && !o.team.includes(f.team)) f.team = '';
+  return `<div class="card fbar"><div class="row" style="align-items:flex-end">
+    <label class="f grow" style="flex-basis:220px">Search<input type="search" id="ff-${t}-q" data-ff="${t}.q" value="${esc(f.q)}" placeholder="${esc(o.ph || 'Search')}"></label>
+    ${o.team && o.team.length > 1 ? sel('team', 'Team', 'All teams', o.team) : ''}${o.st ? sel('st', o.stLabel || 'Status', o.stAll || 'All', o.st) : ''}
+    ${dirty ? `<button class="btn quiet sm" data-act="clearff" data-t="${t}">Clear filters</button>` : ''}</div>${o.count != null ? `<p class="sub" style="margin:10px 0 0">${esc(o.count)}</p>` : ''}</div>`;
+}
 function lbRows(e) {
   return [...lbScope(e)].map(n => person(n)).filter(p => p && p.role !== 'hr').map(p => ({p, pct: personPct(p.name), g: gain(p.name, wk)}))
     .sort((a, b) => b.pct - a.pct || b.g - a.g || a.p.name.localeCompare(b.p.name));
@@ -525,7 +539,7 @@ function viewDash(e) {
       ${myOkrs.length ? `<div class="list">${myOkrs.slice(0, 4).map(okrRow).join('')}</div>` : empty('You have no OKRs yet.', tabBtn('okrs', 'Add your first OKR', ''))}</section>
     <section class="card s-prios"><div class="sec-h"><h2>My standup this week</h2>${mine.length ? tabBtn('stand', 'View all', 'quiet') : ''}</div>
       ${mine.length ? `<div class="list">${mine.map(x => `<div class="kr"><div class="t">${esc(x.text)}</div>${chip(x.status, statTone(x.status))}</div>`).join('')}</div>` : empty('No standup entries for this week.', tabBtn('stand', 'Add an activity', ''))}</section>`}
-    ${company.length ? `<section class="card s-company"><div class="sec-h"><h2>Group and subsidiary OKRs</h2>${tabBtn('okrs', 'View all', 'quiet')}</div><div class="list">${company.slice(0, 3).map(okrRow).join('')}</div></section>` : ''}
+    ${company.length ? `<section class="card s-company"><div class="sec-h"><h2>Company OKRs</h2>${tabBtn('okrs', 'View all', 'quiet')}</div><p class="sub" style="margin:-4px 0 4px">Goals for the whole company or one subsidiary.</p><div class="list">${company.slice(0, 3).map(okrRow).join('')}</div></section>` : ''}
   </div><div class="stack">
     <section class="card s-attn"><div class="sec-h"><h2>Needs your attention</h2></div>
       ${todo.length ? `<div class="list">${todo.map(([t, b]) => `<div class="kr"><div class="t">${esc(t)}</div>${b}</div>`).join('')}</div>` : empty('You are all caught up.')}</section>
@@ -535,9 +549,11 @@ function viewDash(e) {
 }
 
 function viewLead(e) {
-  const rows = lbRows(e);
+  const all = lbRows(e).map((r, i) => ({r, i})), f = ff.lead;
+  const rows = all.filter(({r}) => (!f.team || r.p.team === f.team) && hit(f.q, r.p.name, r.p.team, r.p.sub));
   return `${pageHead('Leaderboard', 'Ranked by approved annual progress. The green chip shows the gain from key results approved in the selected week.', weekNav())}
-  <div class="card">${rows.length ? `<div class="list">${rows.map((r, i) => lbRow(r, i, e.name)).join('')}</div>` : empty('No people to rank yet. The CEO adds people in the People tab.')}</div>`;
+  ${all.length > 1 ? fbar('lead', {ph: 'Search by name', team: teamsIn(all.map(x => x.r.p.name)), count: `Showing ${rows.length} of ${all.length}. Ranks stay the same when filtered.`}) : ''}
+  <div class="card">${rows.length ? `<div class="list">${rows.map(({r, i}) => lbRow(r, i, e.name)).join('')}</div>` : empty(all.length ? 'No one matches these filters.' : 'No people to rank yet. The CEO adds people in the People tab.')}</div>`;
 }
 
 const monCall = () => new Date().getDay() === 1 && wk === curWeek() ? '<div class="banner info">Today: mandatory all-teams call at 9:00 AM to review business priorities.</div>' : '';
@@ -574,8 +590,13 @@ function okrCard(o, e) {
     }).join('')}</div></article>`;
 }
 function viewOkrs(e) {
-  const sc = scope(e), company = S.okrs.filter(o => o.owner === 'Company' && cv(o, e));
-  const people = [...sc].filter(n => personOkrs(n).length).sort((a, b) => a.localeCompare(b));
+  const sc = scope(e), f = ff.okrs;
+  const okrOk = o => hit(f.q, o.objective, o.owner === 'Company' ? ownerLabel(o) : o.owner, ...o.krs.map(k => k.title)) && (!f.st || o.krs.some(k => f.st === 'complete' ? false : krState(k) === f.st) || (f.st === 'complete' && o.krs.length && o.krs.every(k => k.pct === 100)));
+  const allCompany = S.okrs.filter(o => o.owner === 'Company' && cv(o, e));
+  const allPeople = [...sc].filter(n => personOkrs(n).length);
+  const company = allCompany.filter(o => !f.team && okrOk(o));
+  const people = allPeople.filter(n => (!f.team || person(n)?.team === f.team) && personOkrs(n).some(okrOk)).sort((a, b) => a.localeCompare(b));
+  const shown = o => okrOk(o);
   const ow = ownerOptions(e);
   if (!ow.includes(draft.owner)) draft.owner = ow[0];
   const n = draft.krs.length;
@@ -591,10 +612,10 @@ function viewOkrs(e) {
     <div class="row"><button type="button" class="btn quiet" data-act="newokr">Cancel</button><button class="btn" type="submit">Save OKR</button></div></div></form>` : '';
   return `${pageHead('OKRs', 'Annual goals and their key results. Each key result is worth an equal share of its OKR.', newBtn)}
   ${form}
-  <section class="block"><div class="sec-h"><h2>Group and subsidiary OKRs</h2>${company.length ? `<span class="sub">Average <span class="num">${r0(companyPct(e))}%</span></span>` : ''}</div>
-    ${company.length ? company.map(o => okrCard(o, e)).join('') : `<div class="card">${empty('No company OKRs yet.' + (e.role === 'ceo' ? ' Choose New OKR and set a group-wide or subsidiary owner.' : ''))}</div>`}</section>
+  <section class="block"><div class="sec-h"><h2>Company OKRs</h2>${company.length ? `<span class="sub">Average <span class="num">${r0(companyPct(e))}%</span></span>` : ''}</div><p class="sub" style="margin:-4px 0 4px">Goals for the whole company or one subsidiary.</p>
+    ${company.length ? company.map(o => okrCard(o, e)).join('') : `<div class="card">${empty('No company OKRs yet.' + (e.role === 'ceo' ? ' Choose New OKR and set the owner to Whole company or a subsidiary.' : ''))}</div>`}</section>
   <section class="block"><div class="sec-h"><h2>${e.role === 'member' ? 'My OKRs' : 'Personal OKRs'}</h2></div>
-    ${people.length ? people.map(nm => `<div class="block"><div class="person-h">${avatar(nm, true)}<b>${esc(nm)}</b><span class="sub">Annual progress <span class="num">${r0(personPct(nm))}%</span></span></div>${personOkrs(nm).map(o => okrCard(o, e)).join('')}</div>`).join('')
+    ${people.length ? people.map(nm => `<div class="block"><div class="person-h">${avatar(nm, true)}<b>${esc(nm)}</b><span class="sub">Annual progress <span class="num">${r0(personPct(nm))}%</span></span></div>${personOkrs(nm).filter(shown).map(o => okrCard(o, e)).join('')}</div>`).join('')
       : `<div class="card">${empty('No personal OKRs yet.', ow.length ? '<button class="btn" data-act="newokr">Create the first OKR</button>' : '')}</div>`}</section>`;
 }
 
