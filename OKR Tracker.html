@@ -292,7 +292,7 @@ const curWeek = () => iso(mondayOf(new Date()));
 const fmt = n => String(Math.round(n*10)/10);
 const r0 = n => Math.round(n);
 
-let uid = null;
+let uid = null, pf = {q: '', team: '', role: ''};
 let wk = curWeek(), tab = 'dash', viewAs = null, confirmDel = null;
 let draft = {owner:null, obj:'', krs:['','']}, showForm = false, navOpen = false;
 
@@ -630,23 +630,36 @@ function viewReview(e) {
 }
 
 function viewPeople(e) {
-  const ceo = e.role === 'ceo';
-  const list = S.people.filter(p => !subFilter || !p.sub || p.sub === subFilter).sort((a, b) => a.name.localeCompare(b.name));
-  const roleOpts = sel => ['member', 'manager', 'hr', 'ceo'].map(r => `<option value="${r}"${sel === r ? ' selected' : ''}>${ROLES[r]}</option>`).join('');
+  const ceo = e.role === 'ceo' || e.role === 'hr';
+  const inSub = S.people.filter(p => !subFilter || !p.sub || p.sub === subFilter);
+  const teams = [...new Set(inSub.map(p => p.team).filter(Boolean))].sort();
+  if (pf.team && !teams.includes(pf.team)) pf.team = '';
+  const q = pf.q.trim().toLowerCase();
+  const list = inSub.filter(p => (!pf.team || p.team === pf.team) && (!pf.role || p.role === pf.role) && (!q || p.name.toLowerCase().includes(q))).sort((a, b) => a.name.localeCompare(b.name));
+  const filtered = !!(subFilter || pf.team || pf.role || q);
+  const fopt = (v, cur, l) => `<option value="${esc(v)}"${cur === v ? ' selected' : ''}>${esc(l)}</option>`;
+  const roleOpts = sel => (e.role === 'ceo' ? ['member', 'manager', 'hr', 'ceo'] : ['member', 'manager', 'hr']).map(r => `<option value="${r}"${sel === r ? ' selected' : ''}>${ROLES[r]}</option>`).join('');
   const subOpts = sel => `<option value="">Group-level</option>` + SUBS.map(x => `<option${sel === x ? ' selected' : ''}>${esc(x)}</option>`).join('');
   return `${pageHead('People', ceo ? 'Add people and set their subsidiary, role and team. Teams only match within a subsidiary.' : 'Everyone in the group, with subsidiary, role and team.')}
   ${ceo ? `<form class="card" data-submit="addperson"><h3>Add a person</h3><div class="row"><input type="text" id="pe-name" placeholder="Name" aria-label="Name" class="grow">
     <select id="pe-sub" aria-label="Subsidiary">${subOpts('')}</select>
     <select id="pe-role" aria-label="Role">${roleOpts('member')}</select>
     <input type="text" id="pe-team" placeholder="Team" aria-label="Team" style="width:140px"><button class="btn" type="submit">Add</button></div></form>` : ''}
-  <div class="card"><div class="tblwrap"><table><thead><tr><th>Name</th><th>Subsidiary</th><th>Role</th><th>Team</th>${ceo ? '<th></th>' : ''}</tr></thead><tbody>
-  ${list.length ? list.map(p => ceo ? `<tr><td><div class="person-h">${avatar(p.name, true)}<b>${esc(p.name)}</b></div></td>
+  <div class="card"><div class="row" style="align-items:flex-end;margin-bottom:12px">
+    <label class="f grow" style="flex-basis:220px">Search<input type="search" id="pf-q" data-pf="q" value="${esc(pf.q)}" placeholder="Search by name"></label>
+    <label class="f">Subsidiary<select id="pf-sub" data-chg="sub">${fopt('', subFilter, 'All')}${SUBS.map(x => fopt(x, subFilter, x)).join('')}</select></label>
+    <label class="f">Team<select id="pf-team" data-pf="team">${fopt('', pf.team, 'All teams')}${teams.map(x => fopt(x, pf.team, x)).join('')}</select></label>
+    <label class="f">Role<select id="pf-role" data-pf="role">${fopt('', pf.role, 'All roles')}${['ceo', 'hr', 'manager', 'member'].map(r => fopt(r, pf.role, ROLES[r])).join('')}</select></label>
+    ${filtered ? '<button class="btn quiet sm" data-act="clearpf">Clear filters</button>' : ''}</div>
+    <p class="sub" style="margin:0 0 8px">Showing ${list.length} of ${S.people.length} ${S.people.length === 1 ? 'person' : 'people'}</p>
+    <div class="tblwrap"><table><thead><tr><th>Name</th><th>Subsidiary</th><th>Role</th><th>Team</th>${ceo ? '<th></th>' : ''}</tr></thead><tbody>
+  ${list.length ? list.map(p => ceo && (e.role === 'ceo' || p.role !== 'ceo') ? `<tr><td><div class="person-h">${avatar(p.name, true)}<b>${esc(p.name)}</b></div></td>
     <td><select id="pr-s-${p.id}" aria-label="Subsidiary">${subOpts(p.sub)}</select></td>
     <td><select id="pr-r-${p.id}" aria-label="Role">${roleOpts(p.role)}</select></td>
     <td><input type="text" id="pr-t-${p.id}" value="${esc(p.team || '')}" aria-label="Team" style="width:140px"></td>
     <td><div class="row"><button class="btn sm" data-act="saveperson" data-id="${p.id}">Save</button>${confirmDel === p.id ? `<button class="btn bad sm" data-act="delperson" data-id="${p.id}">Confirm</button><button class="btn quiet sm" data-act="cancel">Cancel</button>` : `<button class="btn quiet sm" data-act="askdel" data-id="${p.id}">Remove</button>`}</div></td></tr>`
-    : `<tr><td><div class="person-h">${avatar(p.name, true)}<b>${esc(p.name)}</b></div></td><td>${p.sub ? chip(p.sub, SUB_TONE[p.sub] || '') : chip('Group-level')}</td><td>${chip(ROLES[p.role] || p.role, ROLE_TONE[p.role])}</td><td>${esc(p.team || '—')}</td></tr>`).join('')
-    : `<tr><td colspan="5" class="empty">No people yet.</td></tr>`}</tbody></table></div></div>`;
+    : `<tr><td><div class="person-h">${avatar(p.name, true)}<b>${esc(p.name)}</b></div></td><td>${p.sub ? chip(p.sub, SUB_TONE[p.sub] || '') : chip('Group-level')}</td><td>${chip(ROLES[p.role] || p.role, ROLE_TONE[p.role])}</td><td>${esc(p.team || '—')}</td>${ceo ? '<td></td>' : ''}</tr>`).join('')
+    : `<tr><td colspan="5" class="empty">${filtered ? 'No one matches these filters.' : 'No people yet.'}</td></tr>`}</tbody></table></div></div>`;
 }
 
 function authView() {
@@ -662,7 +675,7 @@ function render() {
   const keep = [...root.querySelectorAll('input[id]:not([type=file]),textarea[id],select[id]')].map(el => ({id: el.id, v: el.value}));
   const ae = document.activeElement, focus = ae && ae.id && root.contains(ae) ? {id: ae.id, s: ae.selectionStart, e: ae.selectionEnd} : null;
   root.innerHTML = build();
-  keep.forEach(k => { const el = document.getElementById(k.id); if (el && el.value !== k.v && !/^(ok-owner)$/.test(k.id)) { if (el.tagName === 'SELECT' && ![...el.options].some(o => o.value === k.v)) return; el.value = k.v; } });
+  keep.forEach(k => { const el = document.getElementById(k.id); if (el && el.value !== k.v && !/^(ok-owner|subsel|pf-sub|pf-team|pf-role)$/.test(k.id)) { if (el.tagName === 'SELECT' && ![...el.options].some(o => o.value === k.v)) return; el.value = k.v; } });
   if (focus) { const el = document.getElementById(focus.id); if (el) { el.focus(); try { if (focus.s != null) el.setSelectionRange(focus.s, focus.e); } catch (_) {} } }
 }
 function build() {
@@ -692,7 +705,7 @@ function build() {
         <span class="grow"></span>${chip('Demo data', 'amb')}
         ${isGroup(e) ? `<label class="viewas">Subsidiary <select id="subsel" class="sm" data-chg="sub"><option value="">All</option>${SUBS.map(x => `<option${subFilter === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select></label>` : ''}
         ${real.role === 'ceo' ? `<label class="viewas">Viewing as <select id="viewas" class="sm" data-chg="viewas"><option value="">me</option>${others.map(p => `<option value="${p.id}"${viewAs === p.id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>` : ''}</header>
-      <main class="content">${e.role === 'hr' ? '<div class="banner info"><span>HR access is read-only.</span></div>' : ''}${(viewAs && real.role === 'ceo') ? `<div class="banner info"><span>Previewing the app as ${esc(e.name)}. Anything you add is recorded as ${esc(e.name)}.</span></div>` : ''}${views[tab](e)}</main>
+      <main class="content">${e.role === 'hr' ? '<div class="banner info"><span>HR can add and manage people. Everything else is read-only.</span></div>' : ''}${(viewAs && real.role === 'ceo') ? `<div class="banner info"><span>Previewing the app as ${esc(e.name)}. Anything you add is recorded as ${esc(e.name)}.</span></div>` : ''}${views[tab](e)}</main>
       <footer class="foot"><span>Demo data. Changes are not saved and reset when you refresh.</span></footer>
     </div></div>`;
 }
@@ -722,10 +735,13 @@ root.addEventListener('click', ev => {
   else if (a === 'signout') { uid = null; viewAs = null; subFilter = ''; }
   else if (a === 'signin') { uid = id; viewAs = null; subFilter = ''; tab = 'dash'; }
   else if (a === 'subfilter') subFilter = b.dataset.s || '';
+  else if (a === 'clearpf') { pf = {q: '', team: '', role: ''}; subFilter = ''; }
   render();
 });
 root.addEventListener('change', ev => {
-  const t = ev.target, k = t.dataset.chg; if (!k) return;
+  const t = ev.target, k = t.dataset.chg;
+  if (t.dataset.pf) { pf[t.dataset.pf] = t.value; return render(); }
+  if (!k) return;
   if (k === 'viewas') { viewAs = t.value || null; draft.owner = null; }
   else if (k === 'sub') subFilter = t.value;
   else if (k === 'owner') draft.owner = t.value;
@@ -735,6 +751,7 @@ root.addEventListener('change', ev => {
 });
 root.addEventListener('input', ev => {
   const t = ev.target;
+  if (t.dataset.pf === 'q') { pf.q = t.value; return render(); }
   if (t.dataset.draft === 'obj') draft.obj = t.value;
   else if (t.dataset.draft === 'kr') draft.krs[+t.dataset.i] = t.value;
 });
