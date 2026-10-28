@@ -1,0 +1,734 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark"><title>Team OKR Tracker</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700&family=Spline+Sans+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: sticky identity bar, scrollable tab strip, single content column (max 1040px) that stacks cards and tables. */
+:root{
+  --bg:#f3f5f8; --surface:#ffffff; --surface2:#eaeef4; --line:#d9dfe8; --fg:#13202e; --muted:#5a6a7d;
+  --accent:#1f4fd8; --accent-fg:#ffffff; --accent-soft:#e3eafc;
+  --good:#17803d; --good-soft:#dff3e5; --warn:#a15c00; --warn-soft:#fdf0d4; --bad:#b4282d; --bad-soft:#fbe3e3;
+  --gold:#d9a400; --silver:#8c98a8; --bronze:#b86b32;
+  --sans:"Schibsted Grotesk",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"Spline Sans Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0e1621; --surface:#16212f; --surface2:#1e2b3c; --line:#2a3a4f; --fg:#e7edf5; --muted:#92a3b8;
+  --accent:#7d9bff; --accent-fg:#0b1220; --accent-soft:#22305a;
+  --good:#5fd08a; --good-soft:#17382a; --warn:#f0b24d; --warn-soft:#3c2f14; --bad:#ff8a8d; --bad-soft:#40201f; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e1621; --surface:#16212f; --surface2:#1e2b3c; --line:#2a3a4f; --fg:#e7edf5; --muted:#92a3b8;
+  --accent:#7d9bff; --accent-fg:#0b1220; --accent-soft:#22305a;
+  --good:#5fd08a; --good-soft:#17382a; --warn:#f0b24d; --warn-soft:#3c2f14; --bad:#ff8a8d; --bad-soft:#40201f; color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.45;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 48px}
+.wrap{max-width:1040px;margin:0 auto}
+header.top{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;justify-content:space-between;padding:16px 0 12px}
+.brand{font-weight:700;font-size:20px;letter-spacing:-.01em}
+.who{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;color:var(--muted)}
+.who b{color:var(--fg)}
+nav.tabs{display:flex;gap:4px;overflow-x:auto;border-bottom:1px solid var(--line);position:sticky;top:env(safe-area-inset-top,0px);background:var(--bg);z-index:5;padding-top:2px}
+nav.tabs button{flex:none;background:none;border:0;border-bottom:3px solid transparent;color:var(--muted);font:600 14px var(--sans);padding:10px 12px;cursor:pointer;display:flex;gap:6px;align-items:center}
+nav.tabs button[aria-current="page"]{color:var(--fg);border-bottom-color:var(--accent)}
+.badge{background:var(--accent);color:var(--accent-fg);border-radius:99px;font:600 11px var(--mono);padding:1px 7px}
+main{display:flex;flex-direction:column;gap:20px;padding-top:20px}
+h2{font-size:18px;margin:0;letter-spacing:-.01em}
+h3{font-size:15px;margin:0}
+.sub{color:var(--muted);font-size:13px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.row{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;min-width:0}
+.row.between{justify-content:space-between}
+.grow{flex:1 1 200px;min-width:0}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+input,select,textarea,button{font:inherit;color:var(--fg)}
+input[type=text],input[type=number],select,textarea{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:0;max-width:100%}
+textarea{width:100%;min-height:64px;resize:vertical}
+input:disabled,select:disabled,textarea:disabled{opacity:.6;cursor:not-allowed}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.medal{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font:600 13px var(--mono);background:var(--surface2);color:var(--muted)}
+.medal.m1{background:var(--gold);color:#241a00}.medal.m2{background:var(--silver);color:#101820}.medal.m3{background:var(--bronze);color:#fff}
+.tblwrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%}
+th,td{text-align:left;padding:8px 10px;border-top:1px solid var(--line);vertical-align:middle}
+th{font:600 12px var(--sans);color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:max(20px,env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:8px;z-index:20;max-width:90vw}
+.sr{position:absolute;left:-9999px}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
+@media (prefers-reduced-motion:no-preference){.bar>i{transition:width .3s}}
+
+[hidden]{display:none!important}
+html,body{min-height:100%}
+.auth{max-width:420px;margin:12vh auto 0}
+
+/* ---- polish: spacing scale 4/8/12/16/24/32, control height 38/32, radius 12/8 ---- */
+:root{--r:12px;--r-sm:8px;--ctl:38px;--shadow:0 1px 2px rgba(15,25,40,.05)}
+body{line-height:1.5}
+h1,h2,h3{text-wrap:balance;margin:0}
+header.top{padding:20px 0 16px;gap:12px 24px}
+.brand{font-size:18px;font-weight:700;letter-spacing:-.02em}
+.who{gap:12px 16px;color:var(--muted)}
+.me{display:flex;align-items:center;gap:10px;min-width:0}
+.me .t{display:flex;flex-direction:column;line-height:1.25;min-width:0}
+.me .t b{color:var(--fg)}.me .t span{font-size:12px}
+.viewas{display:flex;align-items:center;gap:8px;font-size:13px}
+nav.tabs{gap:2px;scrollbar-width:none}
+nav.tabs::-webkit-scrollbar{display:none}
+nav.tabs button{padding:12px 14px}
+main{gap:32px;padding-top:28px}
+.pagehead{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:flex-end;justify-content:space-between}
+.pagehead h1{font-size:24px;line-height:1.2;letter-spacing:-.02em}
+.pagehead .sub{margin:4px 0 0;max-width:60ch}
+.block{display:flex;flex-direction:column;gap:12px;min-width:0}
+.sec-h{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:4px 12px}
+.sec-h h2{font-size:16px;letter-spacing:-.01em}
+.lbl{font:600 11px var(--sans);text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.card{border-radius:var(--r);padding:20px;gap:16px;box-shadow:var(--shadow)}
+.card h3{font-size:16px;line-height:1.3;letter-spacing:-.01em}
+.stack{display:flex;flex-direction:column;gap:24px;min-width:0}
+.cols{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:24px;align-items:start}
+@media(max-width:900px){.cols{grid-template-columns:minmax(0,1fr)}.cols>.stack{display:contents}.s-attn{order:1}.s-okrs{order:2}.s-prios{order:3}.s-company{order:4}.s-lb{order:5}}
+@media(max-width:560px){.stats>:last-child:nth-child(odd){grid-column:1/-1}}
+.stats{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(168px,1fr))}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:16px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.stat .l{font-size:13px;font-weight:500;color:var(--muted)}
+.stat .n{font:600 30px/1.1 var(--mono);letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.stat .s{font-size:12px;color:var(--muted);margin-top:auto}
+.bar{height:6px;border-radius:99px;background:var(--surface2);overflow:hidden;min-width:48px}
+.bar>i{display:block;height:100%;background:var(--accent);border-radius:99px}
+.bar.good>i{background:var(--good)}
+.prog{display:flex;align-items:center;gap:12px}.prog .bar{flex:1}
+.pc{font:600 14px var(--mono);font-variant-numeric:tabular-nums;min-width:44px;text-align:right}
+.list{display:flex;flex-direction:column}
+.list>*{padding:12px 0;border-top:1px solid var(--line)}
+.list>:first-child{border-top:0;padding-top:0}
+.list>:last-child{padding-bottom:0}
+.kr{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between}
+.kr .t{flex:1 1 240px;min-width:0}
+.acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.okr-h{display:flex;gap:12px;align-items:flex-start;justify-content:space-between}
+.person-h{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.person-h .grow{flex:1 1 120px}
+.avatar{width:32px;height:32px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font:600 12px var(--mono);flex:none}
+.avatar.sm{width:24px;height:24px;font-size:10px}
+.lbrow{display:grid;grid-template-columns:28px 32px minmax(0,1.3fr) minmax(0,1fr) 48px;gap:8px 12px;align-items:center}
+.lbname .chips{display:flex;flex-wrap:wrap;gap:4px 6px;margin-top:4px}
+@media(max-width:560px){.lbrow{grid-template-columns:28px 32px minmax(0,1fr) 44px}.lbrow .lbbar{grid-column:1/-1;order:5}}
+.medal{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font:600 13px var(--mono);background:var(--surface2);color:var(--muted)}
+.medal.m1{background:var(--gold);color:#241a00}.medal.m2{background:var(--silver);color:#101820}.medal.m3{background:var(--bronze);color:#fff}
+.weeknav{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.weeknav .lab{font:500 14px var(--mono);padding:0 4px}
+.weeknav .btn.sm{min-width:32px}
+.banner{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;border-radius:var(--r);padding:12px 16px;background:var(--warn-soft);color:var(--warn);font-weight:500}
+.banner.info{background:var(--accent-soft);color:var(--accent)}
+.empty{color:var(--muted);padding:16px 8px;text-align:center;display:flex;flex-direction:column;gap:12px;align-items:center}
+.empty p{margin:0;max-width:44ch}
+.chip{display:inline-flex;align-items:center;gap:4px;border-radius:99px;padding:2px 10px;font-size:12px;font-weight:600;line-height:1.5;background:var(--surface2);color:var(--muted);white-space:nowrap}
+.chip.good{background:var(--good-soft);color:var(--good)}.chip.warn{background:var(--warn-soft);color:var(--warn)}
+.chip.bad{background:var(--bad-soft);color:var(--bad)}.chip.acc{background:var(--accent-soft);color:var(--accent)}
+input[type=text],input[type=number],input[type=password],select{height:var(--ctl);border-radius:var(--r-sm);padding:0 12px}
+select{padding-right:8px}
+select.sm{height:32px;font-size:13px}
+textarea{border-radius:var(--r-sm);padding:10px 12px;line-height:1.45}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:var(--ctl);padding:0 16px;background:var(--accent);color:var(--accent-fg);border:0;border-radius:var(--r-sm);font-weight:600;cursor:pointer;white-space:nowrap}
+.btn:hover{filter:brightness(1.07)}
+.btn.ghost{background:var(--surface2);color:var(--fg)}
+.btn.quiet{background:transparent;color:var(--muted);padding:0 10px}
+.btn.quiet:hover{background:var(--surface2);color:var(--fg);filter:none}
+.btn.bad{background:var(--bad);color:var(--surface)}
+.btn.sm{height:32px;padding:0 12px;font-size:13px}
+.btn:disabled{opacity:.5;cursor:not-allowed;filter:none}
+.rv{background:var(--bg);border:1px solid var(--line);border-radius:var(--r-sm);padding:16px;display:flex;flex-direction:column;gap:12px}
+.rv-fields{display:flex;flex-wrap:wrap;gap:12px}
+.rv .end{display:flex;justify-content:flex-end}
+.foot{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between;margin-top:40px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+.foot .acts{gap:8px}
+@media(max-width:560px){.card{padding:16px}main{gap:24px;padding-top:20px}.pagehead h1{font-size:22px}}
+
+/* ---- colour system: indigo brand, with teal, amber, rose, violet and sky as supporting hues ---- */
+:root{
+  --bg:#f2f4fb; --surface:#ffffff; --surface2:#e9edf7; --line:#dbe0ee;
+  --accent:#4f46e5; --accent-fg:#ffffff; --accent-soft:#e7e6fd;
+  --ind:#4f46e5; --ind-s:#e7e6fd; --tea:#0f766e; --tea-s:#d5f2ee; --amb:#b45309; --amb-s:#fdeccb;
+  --ros:#be123c; --ros-s:#fde2e8; --vio:#6d28d9; --vio-s:#ede4fd; --sky:#0369a1; --sky-s:#d9eefa;
+  --hero1:#3730a3; --hero2:#7c3aed; --glow:#dcdafc;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0d1020; --surface:#161a30; --surface2:#20253f; --line:#2c3256;
+  --accent:#8b8dff; --accent-fg:#0b0c24; --accent-soft:#2b2c63;
+  --ind:#a5a7ff; --ind-s:#2b2c63; --tea:#5eead4; --tea-s:#12403c; --amb:#fcd34d; --amb-s:#45330d;
+  --ros:#fda4af; --ros-s:#4a2030; --vio:#c4b5fd; --vio-s:#38295f; --sky:#7dd3fc; --sky-s:#0f3a4f; --glow:#1d1f4d}}
+:root[data-theme="dark"]{
+  --bg:#0d1020; --surface:#161a30; --surface2:#20253f; --line:#2c3256;
+  --accent:#8b8dff; --accent-fg:#0b0c24; --accent-soft:#2b2c63;
+  --ind:#a5a7ff; --ind-s:#2b2c63; --tea:#5eead4; --tea-s:#12403c; --amb:#fcd34d; --amb-s:#45330d;
+  --ros:#fda4af; --ros-s:#4a2030; --vio:#c4b5fd; --vio-s:#38295f; --sky:#7dd3fc; --sky-s:#0f3a4f; --glow:#1d1f4d}
+body{background:var(--bg) radial-gradient(900px 320px at 85% -100px,var(--glow),transparent) no-repeat}
+.logo{width:28px;height:28px;border-radius:9px;background:linear-gradient(135deg,var(--hero1),var(--hero2));display:inline-grid;place-items:center;flex:none;position:relative}
+.logo::after{content:"";width:12px;height:12px;border-radius:50%;border:3px solid #fff;box-sizing:border-box}
+.brand{display:flex;align-items:center;gap:10px}
+.brandrow{display:flex;align-items:center;gap:12px}.brandrow h1{font-size:22px;letter-spacing:-.02em}
+nav.tabs button[aria-current="page"]{color:var(--ind);border-bottom-color:var(--ind)}
+nav.tabs button:hover{color:var(--fg)}
+.badge{background:var(--ros);color:var(--surface)}
+.hero{display:flex;flex-wrap:wrap;gap:16px 24px;align-items:center;justify-content:space-between;border-radius:16px;padding:24px;color:#fff;background:linear-gradient(120deg,var(--hero1),var(--hero2))}
+.hero h1{font-size:26px;letter-spacing:-.02em;line-height:1.2}
+.hero p{margin:6px 0 0;opacity:.88;max-width:52ch}
+.hero .btn.ghost{background:rgba(255,255,255,.18);color:#fff}
+.hero .btn.ghost:hover{background:rgba(255,255,255,.28);filter:none}
+.hero .btn:disabled{opacity:.45}
+.hero .weeknav .lab{color:#fff}
+.stat.ind{background:var(--ind-s)}.stat.ind .n{color:var(--ind)}
+.stat.tea{background:var(--tea-s)}.stat.tea .n{color:var(--tea)}
+.stat.amb{background:var(--amb-s)}.stat.amb .n{color:var(--amb)}
+.stat.ros{background:var(--ros-s)}.stat.ros .n{color:var(--ros)}
+.stat.vio{background:var(--vio-s)}.stat.vio .n{color:var(--vio)}
+.stat{border-color:transparent;box-shadow:none}
+.stat .l{color:var(--fg);opacity:.75}
+.stat .s{color:var(--fg);opacity:.65}
+.stat .bar{background:rgba(127,127,160,.22)}
+.bar>i{background:linear-gradient(90deg,var(--ind),var(--vio))}
+.bar.good>i{background:linear-gradient(90deg,var(--tea),#22c55e)}
+.bar.warm>i{background:linear-gradient(90deg,#f59e0b,var(--ros))}
+.bar.tone>i{background:currentColor}
+.stat.ind .bar>i,.stat.vio .bar>i{background:var(--ind)}
+.stat.vio .bar>i{background:var(--vio)}
+.chip.vio{background:var(--vio-s);color:var(--vio)}.chip.tea{background:var(--tea-s);color:var(--tea)}
+.chip.amb{background:var(--amb-s);color:var(--amb)}.chip.sky{background:var(--sky-s);color:var(--sky)}
+.chip.acc{background:var(--ind-s);color:var(--ind)}
+.avatar.av0{background:var(--ind-s);color:var(--ind)}.avatar.av1{background:var(--tea-s);color:var(--tea)}
+.avatar.av2{background:var(--amb-s);color:var(--amb)}.avatar.av3{background:var(--ros-s);color:var(--ros)}
+.avatar.av4{background:var(--vio-s);color:var(--vio)}.avatar.av5{background:var(--sky-s);color:var(--sky)}
+.lbrow.first{background:linear-gradient(90deg,var(--amb-s),transparent 70%);margin:0 -12px;padding-left:12px;padding-right:12px;border-radius:10px}
+.picks{display:flex;flex-direction:column;gap:8px}
+.pick{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:var(--surface2);border:1px solid transparent;border-radius:10px;padding:10px 12px;cursor:pointer;font:inherit;color:var(--fg)}
+.pick:hover{border-color:var(--ind)}
+.pick .grow{display:flex;flex-direction:column;line-height:1.3;min-width:0}
+.auth{max-width:480px}
+.weeknav.on-dark .btn:disabled{opacity:.45}
+.card{border-color:var(--line)}
+.btn.sm.ghost:hover{background:var(--ind-s);color:var(--ind);filter:none}
+
+/* ---- app shell: sidebar + top bar ---- */
+:root{--side:#1e1b4b}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--side:#090b1c}}
+:root[data-theme="dark"]{--side:#090b1c}
+body{padding:0}
+.wrap{max-width:none;margin:0}
+.app{display:grid;grid-template-columns:256px minmax(0,1fr);min-height:100vh}
+.side{position:sticky;top:0;height:100vh;overflow-y:auto;background:var(--side);color:#c7c9ee;display:flex;flex-direction:column;gap:12px;padding:20px 12px;padding-left:max(12px,env(safe-area-inset-left,0px))}
+.side-brand{display:flex;align-items:center;gap:10px;color:#fff;font-weight:700;font-size:16px;letter-spacing:-.01em;padding:0 8px 8px}
+.side nav{display:flex;flex-direction:column;gap:2px;flex:1}
+.nav-lbl{font:600 11px var(--sans);text-transform:uppercase;letter-spacing:.08em;color:#8a8dc8;padding:14px 12px 6px}
+.nav-i{display:flex;align-items:center;gap:12px;width:100%;height:40px;padding:0 12px;border:0;background:none;border-radius:10px;color:#c7c9ee;font:500 14px var(--sans);cursor:pointer;text-align:left}
+.nav-i svg,.iconbtn svg,.btn svg{width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.btn svg{width:16px;height:16px}
+.nav-i:hover{background:rgba(255,255,255,.07);color:#fff}
+.nav-i[aria-current="page"]{background:rgba(255,255,255,.15);color:#fff}
+.nav-i .badge{margin-left:auto}
+.side-user{border-top:1px solid rgba(255,255,255,.12);padding:16px 8px 0;display:flex;flex-direction:column;gap:12px}
+.side-user .me .t b{color:#fff}.side-user .me .t span{color:#a6a9dc;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.side-user .chip{background:rgba(255,255,255,.16);color:#fff}
+.side-user .btn.ghost{background:rgba(255,255,255,.1);color:#fff;width:100%}
+.side-user .btn.ghost:hover{background:rgba(255,255,255,.18);color:#fff}
+.mainwrap{min-width:0;display:flex;flex-direction:column;min-height:100vh}
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;display:flex;align-items:center;gap:12px;min-height:60px;padding:0 32px;background:var(--bg);border-bottom:1px solid var(--line)}
+.topbar .grow{flex:1}
+.crumb{display:flex;align-items:center;gap:8px;font-size:14px}.crumb .sep{color:var(--muted)}
+.iconbtn{display:none;place-items:center;width:38px;height:38px;border:0;border-radius:var(--r-sm);background:var(--surface2);color:var(--fg);cursor:pointer}
+main.content{width:100%;max-width:1160px;margin:0 auto;padding:28px 32px 0;flex:1}
+.foot{width:100%;max-width:1160px;margin:40px auto 0;padding:16px 32px 32px;border-top:0}
+.authwrap{min-height:100vh;display:grid;place-items:center;padding:24px max(16px,env(safe-area-inset-right,0px)) 24px max(16px,env(safe-area-inset-left,0px))}
+.authwrap .auth{width:100%;margin:0}
+.scrim{display:none}
+@media(max-width:900px){
+  .app{grid-template-columns:minmax(0,1fr)}
+  .side{position:fixed;left:0;top:0;bottom:0;width:272px;height:100%;z-index:30;transform:translateX(-100%)}
+  .side.open{transform:none}
+  .scrim.on{display:block;position:fixed;inset:0;background:rgba(5,7,25,.55);z-index:25}
+  .iconbtn{display:grid}
+  .topbar{padding:0 max(16px,env(safe-area-inset-right,0px)) 0 max(16px,env(safe-area-inset-left,0px))}
+  main.content{padding:20px max(16px,env(safe-area-inset-right,0px)) 0 max(16px,env(safe-area-inset-left,0px))}
+  .foot{padding:16px max(16px,env(safe-area-inset-right,0px)) 24px max(16px,env(safe-area-inset-left,0px))}
+  .crumb .sub,.crumb .sep{display:none}
+}
+@media(prefers-reduced-motion:no-preference){.side{transition:transform .2s ease}}
+
+button.stat{font:inherit;color:inherit;text-align:left;cursor:pointer;width:100%;border:1px solid transparent}
+button.stat:hover{transform:translateY(-2px);box-shadow:0 6px 16px rgba(30,27,75,.14);border-color:currentColor}
+button.stat .l{display:flex;justify-content:space-between;align-items:center;gap:8px}
+button.stat .go{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;opacity:.45;flex:none}
+button.stat:hover .go{opacity:1}
+button.stat.ind{color:var(--ind)}button.stat.tea{color:var(--tea)}button.stat.amb{color:var(--amb)}button.stat.ros{color:var(--ros)}button.stat.vio{color:var(--vio)}
+button.stat .l,button.stat .s{color:var(--fg)}
+@media(prefers-reduced-motion:no-preference){button.stat{transition:transform .15s,box-shadow .15s}}
+</style></head>
+<body>
+<div class="wrap" id="root"><p class="empty">Loading…</p></div>
+<div class="toast" id="toast" hidden role="status"></div>
+<script>
+
+const ROLES = {ceo:'CEO', hr:'HR', manager:'Manager', member:'Member'};
+const SSTAT = ['Not done','In progress','Done'];
+const COLS = ['okrs','people','stand','wnotes','logs'];
+const S = {signups: []}; COLS.forEach(c => S[c] = []);
+const loaded = new Set();
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const iso = d => d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+const mondayOf = d => { const x = new Date(d); x.setHours(0,0,0,0); x.setDate(x.getDate() - (x.getDay()+6)%7); return x; };
+const parseIso = s => { const [y,m,d] = s.split('-').map(Number); return new Date(y, m-1, d); };
+const curWeek = () => iso(mondayOf(new Date()));
+const fmt = n => String(Math.round(n*10)/10);
+const r0 = n => Math.round(n);
+
+let uid = null;
+let wk = curWeek(), tab = 'dash', viewAs = null, confirmDel = null;
+let draft = {owner:null, obj:'', krs:['','']}, showForm = false, navOpen = false;
+
+
+// ---------- identity & visibility ----------
+const realMe = () => S.people.find(x => uid && x.id === uid) || null;
+function eff() { const r = realMe(); if (!r) return null; if (viewAs && r.role === 'ceo') { const p = S.people.find(x => x.id === viewAs); if (p) return p; } return r; }
+const teamNames = p => { const s = new Set([p.name]); if (p.team) S.people.forEach(x => { if (x.team === p.team) s.add(x.name); }); return s; };
+function scope(p) { return (p.role === 'ceo' || p.role === 'hr') ? new Set([p.name, ...S.people.map(x => x.name)]) : p.role === 'manager' ? teamNames(p) : new Set([p.name]); }
+const lbScope = p => (p.role === 'ceo' || p.role === 'hr') ? new Set(S.people.map(x => x.name)) : teamNames(p);
+const person = n => S.people.find(x => x.name === n);
+
+// ---------- progress ----------
+const gain = (n, w) => S.logs.filter(l => l.owner === n && l.week === w).reduce((s,l) => s + l.delta, 0);
+const okrPct = o => o.krs?.length ? o.krs.filter(k => k.pct === 100).length / o.krs.length * 100 : 0;
+const personOkrs = n => S.okrs.filter(o => o.owner === n);
+const personPct = n => { const a = personOkrs(n); return a.length ? a.reduce((s,o) => s + okrPct(o), 0) / a.length : 0; };
+const companyPct = () => { const a = S.okrs.filter(o => o.owner === 'Company'); return a.length ? a.reduce((s,o) => s + okrPct(o), 0) / a.length : null; };
+const krState = k => k.pct === 100 ? 'approved' : k.req ? 'awaiting' : 'open';
+
+function canApprove(e, o) {
+  if (!e || o.owner === 'Company') return false;
+  if (e.role === 'ceo') return true;
+  if (e.role !== 'manager') return false;
+  const p = person(o.owner);
+  return !!(p && p.role === 'member' && p.team && p.team === e.team && p.name !== e.name);
+}
+function pendingFor(e) {
+  const out = [];
+  S.okrs.forEach(o => (o.krs || []).forEach((k, i) => { if (k.req && k.pct !== 100 && canApprove(e, o)) out.push({o, k, i}); }));
+  return out.sort((a,b) => (a.k.reqAt||0) - (b.k.reqAt||0));
+}
+
+// ---------- data (demo data held in memory, never saved) ----------
+const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id' + Date.now().toString(36) + Math.random().toString(36).slice(2));
+function buildMock() {
+  const wk0 = mondayOf(new Date());
+  const weekIso = n => { const d = new Date(wk0); d.setDate(d.getDate() - 7 * n); return iso(d); };
+  const people = [
+    ['Ada Okafor','ceo',''], ['Fay Lund','hr',''],
+    ['Ben Carter','manager','Growth'], ['Cy Mensah','member','Growth'], ['Dee Park','member','Growth'], ['Zoe Hart','member','Growth'],
+    ['Maya Singh','manager','Product'], ['Eli Ruiz','member','Product'], ['Noor Aziz','member','Product'],
+    ['Leo Vance','manager','Engineering'], ['Ivy Chen','member','Engineering'], ['Sam Brooks','member','Engineering']
+  ].map(([name, role, team], i) => ({id: 'p' + i, name, role, team, uid: ''}));
+  const approverOf = owner => {
+    const p = people.find(x => x.name === owner);
+    if (!p || p.role !== 'member') return 'Ada Okafor';
+    return (people.find(x => x.role === 'manager' && x.team === p.team) || {name: 'Ada Okafor'}).name;
+  };
+  const defs = [
+    ['Company', 'Become the default way teams track goals', [['Reach 5,000 weekly active people','a',1], ['Launch in three new markets','a',2], ['Ship the mobile app','o'], ['Hit 95% customer retention','o']]],
+    ['Company', 'Build a company people love working at', [['Reach an eNPS of 50','a',1], ['Publish the career framework','a',0], ['Hire 12 engineers','o']]],
+    ['Cy Mensah', 'Double organic sign-ups', [['Publish 24 long-form guides','a',2], ['Grow the newsletter to 20,000','r'], ['Cut sign-up drop-off to 30%','o']]],
+    ['Cy Mensah', 'Build a referral programme', [['Launch the referral beta','a',0], ['Reach 500 referred sign-ups','o']]],
+    ['Dee Park', 'Make onboarding feel effortless', [['Cut time to first OKR to 5 minutes','a',1], ['Add a guided tour','a',0], ['Reach 90% setup completion','o'], ['Run 50 customer interviews','o']]],
+    ['Zoe Hart', 'Own paid acquisition', [['Cut cost per sign-up by 20%','a',1], ['Launch three new channels','r'], ['Reach 60% return on ad spend','o']]],
+    ['Ben Carter', 'Run a predictable growth team', [['Hold a metrics review every Monday','a',2], ['Hire two growth analysts','o']]],
+    ['Maya Singh', 'Ship a planning experience customers rave about', [['Release quarterly planning','a',1], ['Interview 40 customers','a',0], ['Reach an NPS of 45','o']]],
+    ['Eli Ruiz', 'Raise activation', [['Redesign the first-run checklist','a',0], ['Document the funnel','a',2], ['Lift activation to 55%','r'], ['Run 10 experiments','o']]],
+    ['Noor Aziz', 'Make insights self-serve', [['Launch the dashboard builder','o'], ['Train 30 customers','r']]],
+    ['Leo Vance', 'Keep the platform fast and reliable', [['Reach 99.95% uptime','a',2], ['Zero critical incidents this quarter','a',1], ['Cut p95 latency to 300 ms','o']]],
+    ['Ivy Chen', 'Modernise the web client', [['Move to the new design system','a',1], ['Cut bundle size by 30%','r'], ['Reach 90% test coverage','o']]],
+    ['Sam Brooks', 'Harden security', [['Roll out single sign-on','a',0], ['Complete the SOC 2 audit','o']]]
+  ];
+  const okrs = defs.map(([owner, objective, krs], i) => ({id: 'o' + i, owner, year: new Date().getFullYear(), objective,
+    krs: krs.map(([title, st, w]) => ({title, pct: st === 'a' ? 100 : 0, req: st === 'r', reqAt: st === 'r' ? Date.now() - 86400000 : 0, apBy: st === 'a' ? approverOf(owner) : '', w}))}));
+  const logs = [];
+  okrs.forEach(o => { const n = okrs.filter(x => x.owner === o.owner).length;
+    o.krs.forEach(k => { if (k.pct === 100) logs.push({id: uuid(), owner: o.owner, week: weekIso(k.w), delta: 100 / o.krs.length / n, okr: o.id, ts: 1}); delete k.w; }); });
+  let ts = 0;
+  const st = (owner, week, items) => items.map(([text, status]) => ({id: uuid(), week, owner, text, status, ts: ++ts}));
+  const stand = [
+    ...st('Cy Mensah', weekIso(0), [['Draft the guide on goal setting for managers','Done'], ['Review newsletter growth experiments','In progress'], ['Brief design on the referral landing page','Not done']]),
+    ...st('Dee Park', weekIso(0), [['Run onboarding usability sessions','In progress'], ['Write copy for the guided tour','Done']]),
+    ...st('Zoe Hart', weekIso(0), [['Set up the new ad channel tests','In progress'], ['Report on last week\'s spend','Done']]),
+    ...st('Ben Carter', weekIso(0), [['Prepare the Monday priorities call','Done'], ['Interview growth analyst candidates','In progress']]),
+    ...st('Eli Ruiz', weekIso(0), [['Ship the checklist experiment','Done'], ['Analyse the activation funnel','In progress'], ['Plan next sprint experiments','Not done']]),
+    ...st('Noor Aziz', weekIso(0), [['Prototype the dashboard builder','In progress']]),
+    ...st('Maya Singh', weekIso(0), [['Review planning feedback from customers','Done'], ['Align roadmap with engineering','In progress']]),
+    ...st('Ivy Chen', weekIso(0), [['Migrate the settings screens','Done'], ['Profile the bundle size','In progress']]),
+    ...st('Sam Brooks', weekIso(0), [['Draft the SSO rollout plan','Done'], ['Gather evidence for the audit','Not done']]),
+    ...st('Leo Vance', weekIso(0), [['Review incident postmortems','Done'], ['Plan the latency work','In progress']]),
+    ...st('Cy Mensah', weekIso(1), [['Publish guide on quarterly planning','Done'], ['Set up referral tracking','Done']]),
+    ...st('Dee Park', weekIso(1), [['Recruit interview participants','Done'], ['Map the current onboarding steps','Done']]),
+    ...st('Eli Ruiz', weekIso(1), [['Document the signup funnel','Done'], ['Define the activation metric','Done']])
+  ];
+  const wnotes = [
+    {id: weekIso(0) + '_p3', week: weekIso(0), owner: 'Cy Mensah', text: 'Blocked on design for the referral page until Wednesday. The quarterly planning guide passed 2,000 reads. Also helped Dee with interview scheduling, which was outside my key results.', ts: 1},
+    {id: weekIso(0) + '_p4', week: weekIso(0), owner: 'Dee Park', text: 'Cut onboarding from nine steps to five. Need two more interview participants for the usability sessions.', ts: 2},
+    {id: weekIso(0) + '_p2', week: weekIso(0), owner: 'Ben Carter', text: 'Team is on track. Two strong analyst candidates this week. Feedback for the team: great energy in Monday\'s call.', ts: 3}
+  ];
+  return {people, okrs, logs, stand, wnotes};
+}
+function loadData() { const d = buildMock(); COLS.forEach(c => S[c] = d[c]); uid = null; }
+const save = () => render();
+const commit = () => render();
+let tt; function toast(m) { const t = $('#toast'); t.textContent = m; t.hidden = false; clearTimeout(tt); tt = setTimeout(() => t.hidden = true, 3500); }
+async function w(fn) { try { await fn(); } catch (e) { toast(e?.message || 'Could not save.'); return false; } return true; }
+const add = async (c, d) => { S[c].push({id: uuid(), ...d}); commit(); return true; };
+const upd = async (c, id, d) => { const x = S[c].find(r => r.id === id); if (x) Object.assign(x, d); commit(); return true; };
+const del = async (c, id) => { S[c] = S[c].filter(r => r.id !== id); commit(); return true; };
+const val = id => document.getElementById(id)?.value ?? '';
+const logGain = (o, delta) => { const n = personOkrs(o.owner).length || 1; S.logs.push({id: uuid(), owner: o.owner, week: curWeek(), delta: delta / o.krs.length / n, okr: o.id, ts: Date.now()}); };
+
+function setKr(oid, i, done) {
+  const e = eff(), o = S.okrs.find(x => x.id === oid); if (!e || !o || e.role === 'hr') return;
+  const k = o.krs[i];
+  if (done) {
+    if (e.role === 'ceo') { if (k.pct !== 100) { Object.assign(k, {pct:100, req:false, reqAt:Date.now(), apBy:e.name}); logGain(o, 100); } }
+    else if (o.owner === e.name) Object.assign(k, {req:true, reqAt:Date.now()});
+  } else if (k.pct === 100) {
+    if (e.role !== 'ceo') return;
+    Object.assign(k, {pct:0, req:false, apBy:''}); logGain(o, -100);
+  } else if (e.role === 'ceo' || o.owner === e.name) k.req = false;
+  commit();
+}
+function approve(oid, i, ok) {
+  const e = eff(), o = S.okrs.find(x => x.id === oid); if (!o || !canApprove(e, o)) return;
+  const k = o.krs[i]; if (!k.req) return;
+  if (ok) { Object.assign(k, {pct:100, req:false, apBy:e.name}); logGain(o, 100); } else k.req = false;
+  commit();
+}
+
+// ---------- html helpers ----------
+const chip = (t, c = '') => `<span class="chip ${c}">${esc(t)}</span>`;
+const bar = (p, c = '') => `<div class="bar ${c === '' ? (p >= 70 ? 'good' : p < 35 ? 'warm' : '') : c}" role="progressbar" aria-valuenow="${r0(p)}" aria-valuemin="0" aria-valuemax="100"><i style="width:${Math.max(0, Math.min(100, p))}%"></i></div>`;
+const opts = (list, sel) => list.map(o => `<option${o === sel ? ' selected' : ''}>${esc(o)}</option>`).join('');
+const weekNav = (dark) => {
+  const s = parseIso(wk), e = new Date(s); e.setDate(e.getDate() + 6);
+  const f = (d, y) => d.toLocaleDateString('en-GB', {day:'numeric', month:'short', ...(y ? {year:'numeric'} : {})});
+  return `<div class="weeknav${dark ? ' on-dark' : ''}"><button class="btn ghost sm" data-act="wk" data-n="-1" aria-label="Previous week">‹</button>
+    <span class="lab">${f(s)} – ${f(e, true)}</span><button class="btn ghost sm" data-act="wk" data-n="1" aria-label="Next week">›</button>
+    <button class="btn ghost sm" data-act="wk" data-n="0"${wk === curWeek() ? ' disabled' : ''}>This week</button></div>`;
+};
+
+// ---------- views ----------
+const ICONS = {
+  dash: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
+  lead: '<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/>',
+  okrs: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2"/>',
+  appr: '<circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.7 2.7L16 9.5"/>',
+  stand: '<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/>',
+  review: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/><path d="m9 15 2 2 4-4"/>',
+  people: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/>',
+  menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  swap: '<path d="M7 7h12l-3-3M17 17H5l3 3"/>'
+};
+const icon = k => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[k]}</svg>`;
+
+const ini = n => String(n || '').trim().split(/\s+/).slice(0, 2).map(x => x[0] || '').join('').toUpperCase();
+const hue = n => [...String(n)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % 6;
+const avatar = (n, sm) => `<span class="avatar av${hue(n)}${sm ? ' sm' : ''}" aria-hidden="true">${esc(ini(n))}</span>`;
+const ROLE_TONE = {ceo: 'vio', hr: 'tea', manager: 'amb', member: 'sky'};
+const plural = (n, a, b) => n + ' ' + (n === 1 ? a : b);
+const pageHead = (title, sub, right = '') => `<div class="pagehead"><div><h1>${esc(title)}</h1>${sub ? `<p class="sub">${esc(sub)}</p>` : ''}</div>${right}</div>`;
+const empty = (msg, btn = '') => `<div class="empty"><p>${esc(msg)}</p>${btn}</div>`;
+const stat = (tone, label, num, sub, pct, to) => `<button class="stat ${tone}" data-act="tab" data-t="${to}" title="Open ${esc(label)}"><span class="l">${esc(label)}<svg class="go" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span><span class="n">${num}</span>${pct != null ? bar(pct, 'tone') : ''}<span class="s">${esc(sub)}</span></button>`;
+const tabBtn = (t, label, cls = 'ghost') => `<button class="btn ${cls} sm" data-act="tab" data-t="${t}">${esc(label)}</button>`;
+
+function lbRows(e) {
+  return [...lbScope(e)].map(n => person(n)).filter(p => p && p.role !== 'hr').map(p => ({p, pct: personPct(p.name), g: gain(p.name, wk)}))
+    .sort((a, b) => b.pct - a.pct || b.g - a.g || a.p.name.localeCompare(b.p.name));
+}
+function lbRow(r, i, me) {
+  return `<div class="lbrow${i === 0 ? ' first' : ''}"><span class="medal ${i < 3 ? 'm' + (i + 1) : ''}">${i + 1}</span>${avatar(r.p.name)}
+    <div class="lbname"><div><b>${esc(r.p.name)}</b>${r.p.name === me ? ' <span class="sub">(you)</span>' : ''}</div><div class="sub">${esc(r.p.team || 'No team')}</div>${r.g > 0.04 ? `<div class="chips">${chip('+' + fmt(r.g) + '% this week', 'good')}</div>` : ''}</div>
+    <div class="lbbar">${bar(r.pct)}</div><span class="pc">${r0(r.pct)}%</span></div>`;
+}
+
+function viewDash(e) {
+  const hr = e.role === 'hr', appr = e.role === 'manager' || e.role === 'ceo';
+  const myOkrs = personOkrs(e.name), myPct = personPct(e.name), cp = companyPct();
+  const mine = S.stand.filter(x => x.week === wk && x.owner === e.name);
+  const done = mine.filter(x => x.status === 'Done').length;
+  const awaitingOf = list => list.reduce((s, o) => s + o.krs.filter(k => k.req && k.pct !== 100).length, 0);
+  const awaiting = awaitingOf(myOkrs);
+  const waiting = appr ? pendingFor(e).length : 0;
+  const wkAll = S.stand.filter(x => x.week === wk && scope(e).has(x.owner));
+  const companyStat = cp !== null ? stat('vio', 'Company OKRs', r0(cp) + '%', 'Average progress. View company OKRs', cp, 'okrs') : stat('vio', 'Company OKRs', '—', 'None set yet', null, 'okrs');
+  const stats = hr ? [companyStat,
+      stat('tea', 'Standup this week', wkAll.length ? `${wkAll.filter(x => x.status === 'Done').length}/${wkAll.length}` : '—', wkAll.length ? 'Activities done. Open standup' : 'No entries yet', null, 'stand'),
+      stat('amb', 'Open requests', awaitingOf(S.okrs), 'Finished key results across the company, waiting on approvers', null, 'okrs')]
+    : [stat('ind', 'Your annual progress', r0(myPct) + '%', myOkrs.length ? plural(myOkrs.length, 'OKR', 'OKRs') + '. Open my OKRs' : 'No OKRs yet. Create one', myPct, 'okrs'),
+      stat('tea', 'Standup this week', mine.length ? `${done}/${mine.length}` : '—', mine.length ? 'Activities done. Open standup' : 'No entries yet. Add one', null, 'stand'),
+      ...(e.role === 'ceo' ? [] : [stat('amb', 'My requests', awaiting, awaiting ? 'Key results you finished, waiting for someone to approve' : 'Nothing waiting. Open my OKRs', null, 'okrs')]),
+      ...(appr ? [stat('ros', 'To review', waiting, waiting ? 'Requests from your team for you to approve or send back' : 'No requests to review. Open approvals', null, 'appr')] : []),
+      companyStat];
+  const todo = [];
+  if (waiting) todo.push([`${plural(waiting, 'key result is', 'key results are')} waiting for your approval.`, tabBtn('appr', 'Review', '')]);
+  if (fridayDue(e)) todo.push(['Add your Friday comments on blockers and wins.', tabBtn('review', 'Open review', '')]);
+  if (!hr && !mine.length) todo.push(['No standup entries for this week.', tabBtn('stand', 'Add activity')]);
+  if (!hr && !myOkrs.length) todo.push(['You have no OKRs yet.', tabBtn('okrs', 'Add OKR')]);
+  if (awaiting) todo.push([`${plural(awaiting, 'of your key results is', 'of your key results are')} awaiting approval.`, '']);
+  const company = S.okrs.filter(o => o.owner === 'Company');
+  const okrRow = o => `<div><div class="kr"><div class="t"><b>${esc(o.objective)}</b><div class="sub">${plural(o.krs.length, 'key result', 'key results')}</div></div></div><div class="prog" style="margin-top:8px">${bar(okrPct(o))}<span class="pc">${r0(okrPct(o))}%</span></div></div>`;
+  const rows = lbRows(e);
+  return `${monCall()}
+  <section class="hero"><div><h1>Welcome back, ${esc(e.name.split(' ')[0])}</h1><p>${esc(ROLES[e.role] || e.role)} · ${esc(e.team || 'Company')}. Here is where things stand this week.</p></div>${weekNav(true)}</section>
+  <div class="stats">${stats.join('')}</div>
+  <div class="cols"><div class="stack">
+    ${hr ? '' : `<section class="card s-okrs"><div class="sec-h"><h2>My OKRs</h2>${myOkrs.length ? tabBtn('okrs', 'View all', 'quiet') : ''}</div>
+      ${myOkrs.length ? `<div class="list">${myOkrs.slice(0, 4).map(okrRow).join('')}</div>` : empty('You have no OKRs yet.', tabBtn('okrs', 'Add your first OKR', ''))}</section>
+    <section class="card s-prios"><div class="sec-h"><h2>My standup this week</h2>${mine.length ? tabBtn('stand', 'View all', 'quiet') : ''}</div>
+      ${mine.length ? `<div class="list">${mine.map(x => `<div class="kr"><div class="t">${esc(x.text)}</div>${chip(x.status, statTone(x.status))}</div>`).join('')}</div>` : empty('No standup entries for this week.', tabBtn('stand', 'Add an activity', ''))}</section>`}
+    ${company.length ? `<section class="card s-company"><div class="sec-h"><h2>Company OKRs</h2>${tabBtn('okrs', 'View all', 'quiet')}</div><div class="list">${company.slice(0, 3).map(okrRow).join('')}</div></section>` : ''}
+  </div><div class="stack">
+    <section class="card s-attn"><div class="sec-h"><h2>Needs your attention</h2></div>
+      ${todo.length ? `<div class="list">${todo.map(([t, b]) => `<div class="kr"><div class="t">${esc(t)}</div>${b}</div>`).join('')}</div>` : empty('You are all caught up.')}</section>
+    <section class="card s-lb"><div class="sec-h"><h2>Leaderboard</h2>${rows.length > 5 ? tabBtn('lead', 'See all', 'quiet') : ''}</div>
+      ${rows.length ? `<div class="list">${rows.slice(0, 5).map((r, i) => lbRow(r, i, e.name)).join('')}</div>` : empty('No one to rank yet.')}</section>
+  </div></div>`;
+}
+
+function viewLead(e) {
+  const rows = lbRows(e);
+  return `${pageHead('Leaderboard', 'Ranked by approved annual progress. The green chip shows the gain from key results approved in the selected week.', weekNav())}
+  <div class="card">${rows.length ? `<div class="list">${rows.map((r, i) => lbRow(r, i, e.name)).join('')}</div>` : empty('No people to rank yet. The CEO adds people in the People tab.')}</div>`;
+}
+
+const monCall = () => new Date().getDay() === 1 && wk === curWeek() ? '<div class="banner info">Today: mandatory all-teams call at 9:00 AM to review business priorities.</div>' : '';
+function fridayDue(e) {
+  if (new Date().getDay() !== 5 || wk !== curWeek() || e.role === 'hr') return false;
+  return !S.wnotes.some(n => n.week === wk && n.owner === e.name && n.text);
+}
+
+function ownerOptions(e) {
+  if (e.role === 'ceo') return ['Company', ...S.people.map(p => p.name).filter(n => n !== e.name), e.name].filter((v, i, a) => a.indexOf(v) === i);
+  if (e.role === 'manager') return [e.name, ...[...teamNames(e)].filter(n => n !== e.name)];
+  if (e.role === 'member') return [e.name];
+  return [];
+}
+function okrCard(o, e) {
+  const n = o.krs.length, wt = 100 / n, p = okrPct(o);
+  const canDel = e.role !== 'hr' && (o.owner === e.name || e.role === 'ceo');
+  const canKr = e.role !== 'hr' && (e.role === 'ceo' || (o.owner !== 'Company' && o.owner === e.name));
+  const delUi = !canDel ? '' : confirmDel === o.id
+    ? `<span class="acts"><button class="btn bad sm" data-act="delokr" data-id="${o.id}">Delete</button><button class="btn quiet sm" data-act="cancel">Cancel</button></span>`
+    : `<button class="btn quiet sm" data-act="askdel" data-id="${o.id}">Delete</button>`;
+  return `<article class="card"><div class="okr-h"><div class="grow"><h3>${esc(o.objective)}</h3><div class="sub">${esc(o.owner)} · ${esc(o.year)} · ${plural(n, 'key result', 'key results')}</div></div>${delUi}</div>
+    <div class="prog">${bar(p)}<span class="pc">${r0(p)}%</span></div>
+    <div class="list">${o.krs.map((k, i) => {
+      const st = krState(k);
+      const status = st === 'approved' ? chip('Approved' + (k.apBy ? ' by ' + k.apBy : ''), 'good') : st === 'awaiting' ? chip('Awaiting approval', 'warn') : chip('Not completed');
+      let act = '';
+      if (canKr) {
+        if (st === 'open') act = `<button class="btn ghost sm" data-act="krdone" data-o="${o.id}" data-i="${i}" data-v="1">${e.role === 'ceo' ? 'Mark complete' : 'Request approval'}</button>`;
+        else if (st === 'awaiting') act = `<button class="btn quiet sm" data-act="krdone" data-o="${o.id}" data-i="${i}" data-v="0">Withdraw</button>`;
+        else if (e.role === 'ceo') act = `<button class="btn quiet sm" data-act="krdone" data-o="${o.id}" data-i="${i}" data-v="0">Reopen</button>`;
+      }
+      return `<div class="kr"><div class="t">${esc(k.title)}<div class="sub num">${fmt(wt)}% of this OKR</div></div><div class="acts">${status}${act}</div></div>`;
+    }).join('')}</div></article>`;
+}
+function viewOkrs(e) {
+  const sc = scope(e), company = S.okrs.filter(o => o.owner === 'Company');
+  const people = [...sc].filter(n => personOkrs(n).length).sort((a, b) => a.localeCompare(b));
+  const ow = ownerOptions(e);
+  if (!ow.includes(draft.owner)) draft.owner = ow[0];
+  const n = draft.krs.length;
+  const newBtn = ow.length ? `<button class="btn" data-act="newokr">${showForm ? 'Close form' : '+ New OKR'}</button>` : '';
+  const form = ow.length && showForm ? `<form class="card" data-submit="addokr"><h2 style="font-size:16px">New OKR</h2>
+    <div class="row" style="align-items:flex-end"><label class="f grow" style="flex-basis:320px">Objective<input type="text" id="ok-obj" data-draft="obj" value="${esc(draft.obj)}" placeholder="What do you want to achieve this year?"></label>
+    <label class="f">Owner<select id="ok-owner" data-chg="owner"${ow.length < 2 ? ' disabled' : ''}>${opts(ow, draft.owner)}</select></label></div>
+    <div style="display:flex;flex-direction:column;gap:8px"><span class="lbl">Key results · ${fmt(100 / n)}% each</span>
+    ${draft.krs.map((k, i) => `<div class="row" style="flex-wrap:nowrap"><span class="num sub" style="min-width:44px;text-align:right">${fmt(100 / n)}%</span>
+      <input type="text" class="grow" id="ok-kr-${i}" data-draft="kr" data-i="${i}" value="${esc(k)}" placeholder="Key result ${i + 1}" aria-label="Key result ${i + 1}">
+      <button type="button" class="btn quiet sm" data-act="rmkr" data-i="${i}"${n <= 2 ? ' disabled' : ''} aria-label="Remove key result ${i + 1}">Remove</button></div>`).join('')}</div>
+    <div class="row between"><div class="row"><button type="button" class="btn ghost sm" data-act="addkr"${n >= 20 ? ' disabled' : ''}>+ Add key result</button><span class="sub">2 to 20 key results</span></div>
+    <div class="row"><button type="button" class="btn quiet" data-act="newokr">Cancel</button><button class="btn" type="submit">Save OKR</button></div></div></form>` : '';
+  return `${pageHead('OKRs', 'Annual goals and their key results. Each key result is worth an equal share of its OKR.', newBtn)}
+  ${form}
+  <section class="block"><div class="sec-h"><h2>Company OKRs</h2>${company.length ? `<span class="sub">Average <span class="num">${r0(companyPct())}%</span></span>` : ''}</div>
+    ${company.length ? company.map(o => okrCard(o, e)).join('') : `<div class="card">${empty('No company OKRs yet.' + (e.role === 'ceo' ? ' Choose New OKR and set Company as the owner.' : ''))}</div>`}</section>
+  <section class="block"><div class="sec-h"><h2>${e.role === 'member' ? 'My OKRs' : 'Personal OKRs'}</h2></div>
+    ${people.length ? people.map(nm => `<div class="block"><div class="person-h">${avatar(nm, true)}<b>${esc(nm)}</b><span class="sub">Annual progress <span class="num">${r0(personPct(nm))}%</span></span></div>${personOkrs(nm).map(o => okrCard(o, e)).join('')}</div>`).join('')
+      : `<div class="card">${empty('No personal OKRs yet.', ow.length ? '<button class="btn" data-act="newokr">Create the first OKR</button>' : '')}</div>`}</section>`;
+}
+
+function viewApprovals(e) {
+  const list = pendingFor(e);
+  return `${pageHead('Approvals', 'Key results your team marked complete. Approving adds to their progress and to this week\'s gain.')}
+  <div class="card">${list.length ? `<div class="list">${list.map(({o, k, i}) => `<div class="kr"><div class="person-h t">${avatar(o.owner)}<div style="min-width:0"><div><b>${esc(o.owner)}</b> <span class="sub">${esc(o.objective)}</span></div><div>${esc(k.title)}</div></div></div>
+    <div class="acts">${chip('Worth ' + fmt(100 / o.krs.length) + '%')}<button class="btn sm" data-act="approve" data-o="${o.id}" data-i="${i}">Approve</button><button class="btn ghost sm" data-act="sendback" data-o="${o.id}" data-i="${i}">Send back</button></div></div>`).join('')}</div>` : empty('Nothing is waiting for you.')}</div>`;
+}
+
+function grouped(items, key) { const m = new Map(); items.forEach(x => { const k = x[key]; if (!m.has(k)) m.set(k, []); m.get(k).push(x); }); return [...m].sort((a, b) => a[0].localeCompare(b[0])); }
+const statTone = st => st === 'Done' ? 'good' : st === 'Blocked' ? 'bad' : st === 'In progress' ? 'warn' : '';
+
+function viewStand(e) {
+  const sc = scope(e), items = S.stand.filter(x => x.week === wk && sc.has(x.owner));
+  return `${pageHead('Weekly Standup', 'What everyone is working on this week.', weekNav())}
+  ${e.role !== 'hr' ? `<form class="card" data-submit="addstand"><label class="lbl" for="su-text">Add an activity</label><div class="row"><input type="text" class="grow" id="su-text" placeholder="What are you working on?"><button class="btn" type="submit">Add</button></div></form>` : ''}
+  ${items.length ? grouped(items, 'owner').map(([o, list]) => { const d = list.filter(x => x.status === 'Done').length;
+    return `<section class="card"><div class="person-h">${avatar(o)}<b class="grow">${esc(o)}</b><span class="sub num">${d} of ${list.length} done</span></div>${bar(d / list.length * 100, 'good')}
+    <div class="list">${list.sort((a, b) => (a.ts || 0) - (b.ts || 0)).map(x => { const can = e.role !== 'hr' && (x.owner === e.name || e.role === 'ceo');
+      return `<div class="kr"><div class="t">${esc(x.text)}</div><div class="acts"><select class="sm" data-chg="stand" data-id="${x.id}" aria-label="Status"${can ? '' : ' disabled'}>${opts(SSTAT, x.status)}</select>
+        ${can ? `<button class="btn quiet sm" data-act="delstand" data-id="${x.id}" aria-label="Delete activity">Delete</button>` : ''}</div></div>`; }).join('')}</div></section>`; }).join('')
+    : `<div class="card">${empty('No standup entries for this week yet.')}</div>`}`;
+}
+
+function viewReview(e) {
+  const sc = scope(e);
+  const fri = fridayDue(e);
+  const noteId = n => wk + '_' + (person(n)?.id || 'owner');
+  const notes = new Map(S.wnotes.filter(x => x.week === wk).map(x => [x.owner, x]));
+  const names = [...new Set([...S.stand.filter(x => x.week === wk && sc.has(x.owner)).map(x => x.owner), ...notes.keys(), ...(e.role !== 'hr' ? [e.name] : [])])].filter(n => sc.has(n)).sort((a, b) => a.localeCompare(b));
+  return `${pageHead('Friday Review', 'Look back on the week: what your standup covered, plus blockers, achievements and feedback.', weekNav())}
+  ${fri ? '<div class="banner"><span>It is Friday. Add your comments on blockers, achievements and feedback.</span></div>' : ''}
+  ${names.length ? names.map(o => {
+    const act = S.stand.filter(x => x.week === wk && x.owner === o).sort((a, b) => (a.ts || 0) - (b.ts || 0));
+    const d = act.filter(x => x.status === 'Done').length;
+    const nt = notes.get(o), canN = e.role !== 'hr' && (o === e.name || e.role === 'ceo');
+    return `<section class="card"><div class="person-h">${avatar(o)}<b class="grow">${esc(o)}</b>${act.length ? chip(d + ' of ' + act.length + ' done', d === act.length ? 'good' : 'acc') : ''}${nt && nt.text ? chip('Comments added', 'tea') : chip('No comments yet')}</div>
+      <div style="display:flex;flex-direction:column;gap:8px"><span class="lbl">Standup this week</span>
+        ${act.length ? `<div class="list">${act.map(x => `<div class="kr"><div class="t">${esc(x.text)}</div>${chip(x.status, statTone(x.status))}</div>`).join('')}</div>` : '<span class="sub">No standup entries.</span>'}</div>
+      <div style="display:flex;flex-direction:column;gap:8px"><label class="lbl" for="wn-${noteId(o)}">Blockers, achievements or feedback</label>
+        ${canN ? `<textarea id="wn-${noteId(o)}" placeholder="Anything blocking you, wins from the week, or feedback. Include work outside your key results.">${esc(nt?.text || '')}</textarea><div class="end" style="display:flex;justify-content:flex-end"><button class="btn sm" data-act="savenote" data-o="${esc(o)}">Save comments</button></div>`
+          : `<div${nt && nt.text ? '' : ' class="sub"'}>${nt && nt.text ? esc(nt.text) : 'No comments yet.'}</div>`}</div></section>`;
+  }).join('') : `<div class="card">${empty('Nothing to review for this week yet.')}</div>`}`;
+}
+
+function viewPeople(e) {
+  const ceo = e.role === 'ceo';
+  const unlinked = S.people.filter(p => !p.uid);
+  return `${pageHead('People', ceo ? 'Add people and set their role and team. Roles decide what each person can see.' : 'Everyone in the company, with role and team.')}
+  ${ceo ? `<form class="card" data-submit="addperson"><h3>Add a person</h3><div class="row"><input type="text" id="pe-name" placeholder="Name" aria-label="Name" class="grow">
+    <select id="pe-role" aria-label="Role">${['member','manager','hr','ceo'].map(r => `<option value="${r}">${ROLES[r]}</option>`).join('')}</select>
+    <input type="text" id="pe-team" placeholder="Team" aria-label="Team" style="width:140px"><button class="btn" type="submit">Add</button></div></form>` : ''}
+  <div class="card"><div class="tblwrap"><table><thead><tr><th>Name</th><th>Role</th><th>Team</th><th>Signed in here</th>${ceo ? '<th></th>' : ''}</tr></thead><tbody>
+  ${S.people.length ? [...S.people].sort((a,b) => a.name.localeCompare(b.name)).map(p => ceo ? `<tr><td>${esc(p.name)}</td>
+    <td><select id="pr-r-${p.id}" aria-label="Role">${['member','manager','hr','ceo'].map(r => `<option value="${r}"${p.role === r ? ' selected' : ''}>${ROLES[r]}</option>`).join('')}</select></td>
+    <td><input type="text" id="pr-t-${p.id}" value="${esc(p.team || '')}" aria-label="Team" style="width:140px"></td><td>${p.uid ? chip('Linked', 'good') : chip('Not linked')}</td>
+    <td><div class="row"><button class="btn sm" data-act="saveperson" data-id="${p.id}">Save</button>${confirmDel === p.id ? `<button class="btn bad sm" data-act="delperson" data-id="${p.id}">Confirm</button><button class="btn ghost sm" data-act="cancel">Cancel</button>` : `<button class="btn ghost sm" data-act="askdel" data-id="${p.id}">Remove</button>`}</div></td></tr>`
+    : `<tr><td>${esc(p.name)}</td><td>${ROLES[p.role] || esc(p.role)}</td><td>${esc(p.team || '—')}</td><td>${p.uid ? chip('Linked', 'good') : chip('Not linked')}</td></tr>`).join('')
+    : `<tr><td colspan="5" class="empty">No people yet.</td></tr>`}</tbody></table></div></div>`;
+}
+
+function authView() {
+  const order = {ceo: 0, hr: 1, manager: 2, member: 3};
+  return `<div class="authwrap"><div class="card auth"><div class="brandrow"><span class="logo" aria-hidden="true"></span><h1>Team OKR Tracker</h1></div>
+    <p class="sub">This is a demo with sample data. Choose a person to see what their role can see and do. Nothing is saved.</p>
+    <div class="picks">${[...S.people].sort((a, b) => order[a.role] - order[b.role] || a.name.localeCompare(b.name)).map(p => `<button class="pick" data-act="signin" data-id="${p.id}">${avatar(p.name)}<span class="grow"><b>${esc(p.name)}</b><span class="sub">${esc(p.team || 'Company')}</span></span>${chip(ROLES[p.role] || p.role, ROLE_TONE[p.role])}</button>`).join('')}</div></div></div>`;
+}
+
+// ---------- shell ----------
+function render() {
+  const root = $('#root');
+  const keep = [...root.querySelectorAll('input[id]:not([type=file]),textarea[id],select[id]')].map(el => ({id: el.id, v: el.value}));
+  const ae = document.activeElement, focus = ae && ae.id && root.contains(ae) ? {id: ae.id, s: ae.selectionStart, e: ae.selectionEnd} : null;
+  root.innerHTML = build();
+  keep.forEach(k => { const el = document.getElementById(k.id); if (el && el.value !== k.v && !/^(ok-owner)$/.test(k.id)) { if (el.tagName === 'SELECT' && ![...el.options].some(o => o.value === k.v)) return; el.value = k.v; } });
+  if (focus) { const el = document.getElementById(focus.id); if (el) { el.focus(); try { if (focus.s != null) el.setSelectionRange(focus.s, focus.e); } catch (_) {} } }
+}
+function build() {
+  if (!realMe()) return authView();
+  const real = realMe();
+  const e = eff(), appr = e.role === 'manager' || e.role === 'ceo';
+  const pend = appr ? pendingFor(e).length : 0;
+  const nav = [['dash', 'Dashboard', 'Overview'], ['lead', 'Leaderboard', 'Overview'], ['okrs', 'OKRs', 'Goals'], ...(appr ? [['appr', 'Approvals', 'Goals']] : []),
+    ['stand', 'Standup', 'Weekly rhythm'], ['review', 'Friday Review', 'Weekly rhythm'], ...(e.role === 'ceo' || e.role === 'hr' ? [['people', 'People', 'Company']] : [])];
+  if (!nav.some(t => t[0] === tab)) tab = 'dash';
+  const views = {dash: viewDash, lead: viewLead, okrs: viewOkrs, appr: viewApprovals, stand: viewStand, review: viewReview, people: viewPeople};
+  const others = S.people.filter(p => p.name !== real.name);
+  const groups = [...new Set(nav.map(n => n[2]))];
+  const page = nav.find(n => n[0] === tab)[1];
+  return `<div class="app">
+    <aside class="side${navOpen ? ' open' : ''}" aria-label="Sidebar">
+      <div class="side-brand"><span class="logo" aria-hidden="true"></span><span>Team OKR Tracker</span></div>
+      <nav aria-label="Main">${groups.map(g => `<div class="nav-lbl">${esc(g)}</div>${nav.filter(n => n[2] === g).map(([k, l]) =>
+        `<button class="nav-i" data-act="tab" data-t="${k}"${tab === k ? ' aria-current="page"' : ''}>${icon(k)}<span>${esc(l)}</span>${k === 'appr' && pend ? `<span class="badge">${pend}</span>` : ''}</button>`).join('')}`).join('')}</nav>
+      <div class="side-user"><div class="me">${avatar(e.name)}<div class="t"><b>${esc(e.name)}</b><span>${chip(ROLES[e.role] || e.role, ROLE_TONE[e.role])} ${esc(e.team || 'No team')}</span></div></div>
+        <button class="btn ghost sm" data-act="signout">${icon('swap')}Switch user</button></div>
+    </aside>
+    <div class="scrim${navOpen ? ' on' : ''}" data-act="closenav"></div>
+    <div class="mainwrap">
+      <header class="topbar"><button class="iconbtn menu" data-act="menu" aria-label="Open menu">${icon('menu')}</button>
+        <span class="crumb"><span class="sub">Team OKR Tracker</span><span class="sep">/</span><b>${esc(page)}</b></span>
+        <span class="grow"></span>${chip('Demo data', 'amb')}
+        ${real.role === 'ceo' ? `<label class="viewas">Viewing as <select id="viewas" class="sm" data-chg="viewas"><option value="">me</option>${others.map(p => `<option value="${p.id}"${viewAs === p.id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>` : ''}</header>
+      <main class="content">${e.role === 'hr' ? '<div class="banner info"><span>HR access is read-only.</span></div>' : ''}${(viewAs && real.role === 'ceo') ? `<div class="banner info"><span>Previewing the app as ${esc(e.name)}. Anything you add is recorded as ${esc(e.name)}.</span></div>` : ''}${views[tab](e)}</main>
+      <footer class="foot"><span>Demo data. Changes are not saved and reset when you refresh.</span></footer>
+    </div></div>`;
+}
+
+// ---------- events ----------
+const root = $('#root');
+root.addEventListener('click', ev => {
+  const b = ev.target.closest('[data-act]'); if (!b) return;
+  
+  const a = b.dataset.act, id = b.dataset.id, e = eff(), i = +b.dataset.i;
+  if (a === 'tab') { tab = b.dataset.t; confirmDel = null; navOpen = false; }
+  else if (a === 'menu') navOpen = !navOpen;
+  else if (a === 'closenav') navOpen = false;
+  else if (a === 'wk') { const n = +b.dataset.n; if (n === 0) wk = curWeek(); else { const d = parseIso(wk); d.setDate(d.getDate() + 7 * n); wk = iso(d); } }
+  else if (a === 'newokr') showForm = !showForm;
+  else if (a === 'krdone') setKr(b.dataset.o, i, b.dataset.v === '1');
+  else if (a === 'askdel') confirmDel = id;
+  else if (a === 'cancel') confirmDel = null;
+  else if (a === 'addkr') { if (draft.krs.length < 20) draft.krs.push(''); }
+  else if (a === 'rmkr') { if (draft.krs.length > 2) draft.krs.splice(i, 1); }
+  else if (a === 'delokr') { confirmDel = null; del('okrs', id); }
+  else if (a === 'approve') approve(b.dataset.o, i, true);
+  else if (a === 'sendback') approve(b.dataset.o, i, false);
+  else if (a === 'delstand') del('stand', id);
+  else if (a === 'delperson') { confirmDel = null; del('people', id); }
+  else if (a === 'saveperson') upd('people', id, {role: val('pr-r-' + id), team: val('pr-t-' + id).trim()}).then(ok => { if (ok) toast('Saved.'); });
+  else if (a === 'signout') { uid = null; viewAs = null; }
+  else if (a === 'signin') { uid = id; viewAs = null; tab = 'dash'; }
+  render();
+});
+root.addEventListener('change', ev => {
+  const t = ev.target, k = t.dataset.chg; if (!k) return;
+  if (k === 'viewas') { viewAs = t.value || null; draft.owner = null; }
+  else if (k === 'owner') draft.owner = t.value;
+  else if (k === 'kr') setKr(t.dataset.o, +t.dataset.i, t.value === '1');
+  else if (k === 'stand') upd('stand', t.dataset.id, {status: t.value});
+  render();
+});
+root.addEventListener('input', ev => {
+  const t = ev.target;
+  if (t.dataset.draft === 'obj') draft.obj = t.value;
+  else if (t.dataset.draft === 'kr') draft.krs[+t.dataset.i] = t.value;
+});
+root.addEventListener('submit', ev => {
+  ev.preventDefault();
+  const f = ev.target.dataset.submit;
+  const e = eff(); if (!e) return;
+  if (f === 'addokr') {
+    const krs = draft.krs.map(s => s.trim()).filter(Boolean), obj = draft.obj.trim();
+    if (!obj || krs.length < 2) return toast('Enter an objective and at least 2 key results.');
+    add('okrs', {objective: obj, owner: draft.owner, year: new Date().getFullYear(), krs: krs.map(t => ({title:t, pct:0, req:false, reqAt:0, apBy:''}))});
+    draft = {owner: draft.owner, obj:'', krs:['','']}; showForm = false;
+  } else if (f === 'addstand') {
+    const t = val('su-text').trim(); if (!t) return toast('Enter an activity first.');
+    add('stand', {week: wk, owner: e.name, text: t, status: 'Not done', ts: Date.now()}); $('#su-text').value = '';
+  } else if (f === 'addperson') {
+    const n = val('pe-name').trim(); if (!n) return toast('Enter a name.');
+    add('people', {name: n, role: val('pe-role'), team: val('pe-team').trim(), uid: null}); $('#pe-name').value = ''; $('#pe-team').value = '';
+  }
+  render();
+});
+
+// ---------- start ----------
+loadData();
+render();
+
+</script>
+</body></html>
