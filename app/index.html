@@ -26,9 +26,6 @@ body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 48px}
 .wrap{max-width:1040px;margin:0 auto}
 header.top{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;justify-content:space-between;padding:16px 0 12px}
-.brand{font-weight:700;font-size:20px;letter-spacing:-.01em}
-.who{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;color:var(--muted)}
-.who b{color:var(--fg)}
 nav.tabs{display:flex;gap:4px;overflow-x:auto;border-bottom:1px solid var(--line);position:sticky;top:env(safe-area-inset-top,0px);background:var(--bg);z-index:5;padding-top:2px}
 nav.tabs button{flex:none;background:none;border:0;border-bottom:3px solid transparent;color:var(--muted);font:600 14px var(--sans);padding:10px 12px;cursor:pointer;display:flex;gap:6px;align-items:center}
 nav.tabs button[aria-current="page"]{color:var(--fg);border-bottom-color:var(--accent)}
@@ -41,7 +38,6 @@ h3{font-size:15px;margin:0}
 .row{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;min-width:0}
 .row.between{justify-content:space-between}
 .grow{flex:1 1 200px;min-width:0}
-.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
 .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
 input,select,textarea,button{font:inherit;color:var(--fg)}
 input[type=text],input[type=email],input[type=search],input[type=number],select,textarea{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:0;max-width:100%}
@@ -68,8 +64,6 @@ html,body{min-height:100%}
 body{line-height:1.5}
 h1,h2,h3{text-wrap:balance;margin:0}
 header.top{padding:20px 0 16px;gap:12px 24px}
-.brand{font-size:18px;font-weight:700;letter-spacing:-.02em}
-.who{gap:12px 16px;color:var(--muted)}
 .me{display:flex;align-items:center;gap:10px;min-width:0}
 .me .t{display:flex;flex-direction:column;line-height:1.25;min-width:0}
 .me .t b{color:var(--fg)}.me .t span{font-size:12px}
@@ -78,21 +72,21 @@ nav.tabs{gap:2px;scrollbar-width:none}
 nav.tabs::-webkit-scrollbar{display:none}
 nav.tabs button{padding:12px 14px}
 main{gap:32px;padding-top:28px}
-.pagehead{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:flex-end;justify-content:space-between}
-.pagehead h1{font-size:24px;line-height:1.2;letter-spacing:-.02em}
+.pagehead{display:flex;flex-wrap:wrap;gap:8px 20px;align-items:flex-end;justify-content:space-between}
+.pagehead h1{font-size:21px;line-height:1.2;letter-spacing:-.02em}
 .pagehead .sub{margin:4px 0 0;max-width:60ch}
-.block{display:flex;flex-direction:column;gap:12px;min-width:0}
+.block{display:flex;flex-direction:column;gap:10px;min-width:0}
 .sec-h{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:4px 12px}
 .sec-h h2{font-size:16px;letter-spacing:-.01em}
 .lbl{font:600 11px var(--sans);text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
-.card{border-radius:var(--r);padding:20px;gap:16px;box-shadow:var(--shadow)}
+.card{border-radius:var(--r);padding:14px 16px;gap:10px;box-shadow:var(--shadow)}
 .card h3{font-size:16px;line-height:1.3;letter-spacing:-.01em}
-.stack{display:flex;flex-direction:column;gap:24px;min-width:0}
-.cols{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:24px;align-items:start}
+.stack{display:flex;flex-direction:column;gap:16px;min-width:0}
+.cols{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:16px;align-items:start}
 @media(max-width:900px){.cols{grid-template-columns:minmax(0,1fr)}.cols>.stack{display:contents}.s-attn{order:1}.s-okrs{order:2}.s-prios{order:3}.s-company{order:4}.s-lb{order:5}}
 @media(max-width:560px){.stats>:last-child:nth-child(odd){grid-column:1/-1}}
-.stats{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(168px,1fr))}
-.stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:16px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.stats{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:12px 14px;display:flex;flex-direction:column;gap:6px;min-width:0}
 .stat .l{font-size:13px;font-weight:500;color:var(--muted)}
 .stat .n{font:600 30px/1.1 var(--mono);letter-spacing:-.03em;font-variant-numeric:tabular-nums}
 .stat .s{font-size:12px;color:var(--muted);margin-top:auto}
@@ -102,7 +96,7 @@ main{gap:32px;padding-top:28px}
 .prog{display:flex;align-items:center;gap:12px}.prog .bar{flex:1}
 .pc{font:600 14px var(--mono);font-variant-numeric:tabular-nums;min-width:44px;text-align:right}
 .list{display:flex;flex-direction:column}
-.list>*{padding:12px 0;border-top:1px solid var(--line)}
+.list>*{padding:9px 0;border-top:1px solid var(--line)}
 .list>:first-child{border-top:0;padding-top:0}
 .list>:last-child{padding-bottom:0}
 .kr{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between}
@@ -140,9 +134,6 @@ textarea{border-radius:var(--r-sm);padding:10px 12px;line-height:1.45}
 .btn.bad{background:var(--bad);color:var(--surface)}
 .btn.sm{height:32px;padding:0 12px;font-size:13px}
 .btn:disabled{opacity:.5;cursor:not-allowed;filter:none}
-.rv{background:var(--bg);border:1px solid var(--line);border-radius:var(--r-sm);padding:16px;display:flex;flex-direction:column;gap:12px}
-.rv-fields{display:flex;flex-wrap:wrap;gap:12px}
-.rv .end{display:flex;justify-content:flex-end}
 .foot{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between;margin-top:40px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
 .foot .acts{gap:8px}
 @media(max-width:560px){.card{padding:16px}main{gap:24px;padding-top:20px}.pagehead h1{font-size:22px}}
@@ -168,12 +159,11 @@ textarea{border-radius:var(--r-sm);padding:10px 12px;line-height:1.45}
 body{background:var(--bg) radial-gradient(900px 320px at 85% -100px,var(--glow),transparent) no-repeat}
 .logo{width:28px;height:28px;border-radius:9px;background:linear-gradient(135deg,var(--hero1),var(--hero2));display:inline-grid;place-items:center;flex:none;position:relative}
 .logo::after{content:"";width:12px;height:12px;border-radius:50%;border:3px solid #fff;box-sizing:border-box}
-.brand{display:flex;align-items:center;gap:10px}
 .brandrow{display:flex;align-items:center;gap:12px}.brandrow h1{font-size:22px;letter-spacing:-.02em}
 nav.tabs button[aria-current="page"]{color:var(--ind);border-bottom-color:var(--ind)}
 nav.tabs button:hover{color:var(--fg)}
 .badge{background:var(--ros);color:var(--surface)}
-.hero{display:flex;flex-wrap:wrap;gap:16px 24px;align-items:center;justify-content:space-between;border-radius:16px;padding:24px;color:#fff;background:linear-gradient(120deg,var(--hero1),var(--hero2))}
+.hero{display:flex;flex-wrap:wrap;gap:16px 24px;align-items:center;justify-content:space-between;border-radius:14px;padding:16px 20px;color:#fff;background:linear-gradient(120deg,var(--hero1),var(--hero2))}
 .hero h1{font-size:26px;letter-spacing:-.02em;line-height:1.2}
 .hero p{margin:6px 0 0;opacity:.88;max-width:52ch}
 .hero .btn.ghost{background:rgba(255,255,255,.18);color:#fff}
@@ -238,8 +228,8 @@ body{padding:0}
 .topbar .grow{flex:1}
 .crumb{display:flex;align-items:center;gap:8px;font-size:14px}.crumb .sep{color:var(--muted)}
 .iconbtn{display:none;place-items:center;width:38px;height:38px;border:0;border-radius:var(--r-sm);background:var(--surface2);color:var(--fg);cursor:pointer}
-main.content{width:100%;max-width:1160px;margin:0 auto;padding:28px 32px 0;flex:1}
-.foot{width:100%;max-width:1160px;margin:40px auto 0;padding:16px 32px 32px;border-top:0}
+main.content{width:100%;max-width:1160px;margin:0 auto;padding:18px 32px 0;flex:1}
+.foot{width:100%;max-width:1160px;margin:24px auto 0;padding:16px 32px 32px;border-top:0}
 .authwrap{min-height:100vh;display:grid;place-items:center;padding:24px max(16px,env(safe-area-inset-right,0px)) 24px max(16px,env(safe-area-inset-left,0px))}
 .authwrap .auth{width:100%;margin:0}
 .scrim{display:none}
@@ -300,6 +290,14 @@ ul.org,ul.org ul{list-style:none;margin:0;padding:0}
 ul.org ul{margin-left:14px;padding-left:16px;border-left:2px solid var(--line)}
 ul.org li{padding:4px 0}
 .orgc{padding:8px 10px;border-radius:var(--r-sm);background:var(--surface2)}
+.fbar{padding:10px 14px;gap:0}
+.fbar .row{gap:8px 12px}
+.fbar .sub{margin:0 0 0 auto;white-space:nowrap}
+.card>form.row{margin:0}
+.seg{padding:3px}
+.seg button{height:32px;padding:0 13px}
+.side-brand{padding-bottom:4px}
+.askonce{padding:10px 12px;border-radius:var(--r-sm);background:var(--surface2);display:flex;flex-direction:column;gap:6px}
 </style></head>
 <body>
 <div class="wrap" id="root"><p class="empty">Loading…</p></div>
@@ -308,7 +306,7 @@ ul.org li{padding:4px 0}
 
 const ROLES = {ceo:'CEO', hr:'HR', manager:'Manager', member:'Member'};
 const SSTAT = ['Not done','In progress','Done'];
-const COLS = ['okrs','people','stand','wnotes','logs','welfare','daily','leave','cycles','reviews','roles','cands','ones','fb','docs'];
+const COLS = ['okrs','people','stand','wnotes','logs','welfare','daily','leave','cycles','reviews','roles','cands','ones','fb','docs','surveys'];
 const S = {signups: []}; COLS.forEach(c => S[c] = []);
 const loaded = new Set();
 const $ = s => document.querySelector(s);
@@ -434,6 +432,12 @@ const docsFor = n => S.docs.filter(d => d.owner === n).sort((a, b) => b.at - a.a
 const onesFor = (a, b) => S.ones.filter(x => (x.owner === a && x.with === b) || (x.owner === b && x.with === a)).sort((x, y) => y.at - x.at);
 const fbFor = n => S.fb.filter(x => x.to === n).sort((a, b) => b.at - a.at);
 const FBTONE = {Praise: 'good', Improvement: 'warn'};
+const surveyFor = w => S.surveys.find(x => x.week === w) || null;
+const recipients = () => S.people.filter(p => p.role !== 'hr');
+const responded = w => recipients().filter(p => welfareOf(p.name, w));
+const outstanding = w => recipients().filter(p => !welfareOf(p.name, w));
+const surveyDue = e => { const sv = surveyFor(curWeek()); return !!sv && !sv.closed && e.role !== 'hr' && !welfareOf(e.name, curWeek()); };
+const enpsAsked = n => S.welfare.some(x => x.owner === n && x.enps != null && Date.now() - x.ts < 28 * 86400000);
 const enpsOf = n => { const w = S.welfare.filter(x => x.owner === n && x.enps != null).sort((a, b) => b.ts - a.ts); return w.length ? w[0].enps : null; };
 function enpsScore(names) {
   const v = names.map(enpsOf).filter(x => x != null); if (!v.length) return null;
@@ -666,7 +670,9 @@ function buildMock() {
     dc(p.name, 'Job description', 'Role', 'On file', 380),
     ...(p.name === 'Zoe Hart' || p.name === 'Noor Aziz' ? [dc(p.name, 'Updated handbook acknowledgement', 'Policy', 'Awaiting signature', 10)] : [dc(p.name, 'Updated handbook acknowledgement', 'Policy', 'Signed', 30)])
   ]));
-  return {people, okrs, logs, stand, wnotes, welfare, daily, leave, cycles, reviews, roles, cands, ones, fb, docs};
+  const surveys = [{id: uuid(), week: weekIso(0), sentAt: Date.now() - 2 * 86400000, sentBy: 'Fay Lund', remindedAt: 0, closed: false},
+    {id: uuid(), week: weekIso(1), sentAt: Date.now() - 9 * 86400000, sentBy: 'Fay Lund', remindedAt: 0, closed: true}];
+  return {people, okrs, logs, stand, wnotes, welfare, daily, leave, cycles, reviews, roles, cands, ones, fb, docs, surveys};
 }
 function loadData() { const d = buildMock(); COLS.forEach(c => S[c] = d[c]); uid = null; }
 const save = () => render();
@@ -747,7 +753,7 @@ function fbar(t, o = {}) {
   return `<div class="card fbar"><div class="row" style="align-items:flex-end">
     <label class="f grow" style="flex-basis:220px">Search<input type="search" id="ff-${t}-q" data-ff="${t}.q" value="${esc(f.q)}" placeholder="${esc(o.ph || 'Search')}"></label>
     ${o.v ? sel('v', o.vLabel || 'Result', o.vAll || 'Any', o.v) : ''}${o.mo ? sel('mo', 'Due month', 'Any month', o.mo) : ''}${o.team && o.team.length > 1 ? sel('team', 'Team', 'All teams', o.team) : ''}${o.st ? sel('st', o.stLabel || 'Status', o.stAll || 'All', o.st) : ''}
-    ${dirty ? `<button class="btn quiet sm" data-act="clearff" data-t="${t}">Clear filters</button>` : ''}</div>${o.count != null ? `<p class="sub" style="margin:10px 0 0">${esc(o.count)}</p>` : ''}</div>`;
+    ${dirty ? `<button class="btn quiet sm" data-act="clearff" data-t="${t}">Clear filters</button>` : ''}${o.count != null ? `<span class="sub">${esc(o.count)}</span>` : ''}</div></div>`;
 }
 function lbRows(e) {
   return [...lbScope(e)].map(n => person(n)).filter(p => p && p.role !== 'hr').map(p => ({p, pct: personPct(p.name), g: gain(p.name, wk)}))
@@ -780,6 +786,7 @@ function viewDash(e) {
   const todo = [];
   if (waiting - revN) todo.push([`${plural(waiting - revN, 'key result is', 'key results are')} waiting for your approval.`, tabBtn('appr', 'Review', '')]);
   if (revN) todo.push([`${plural(revN, 'OKR change is', 'OKR changes are')} waiting for your approval.`, tabBtn('appr', 'Review', '')]);
+  if (surveyDue(e)) todo.push(['Your weekly check-in is waiting.', tabBtn('welf', 'Fill it in', '')]);
   if (fridayDue(e)) todo.push(['Add your Friday comments on blockers and wins.', tabBtn('review', 'Open review', '')]);
   if (!hr && !mine.length) todo.push(['No standup entries for this week.', tabBtn('stand', 'Add activity')]);
   if (!hr && !myOkrs.length) todo.push(e.role === 'member' ? ['You have no OKRs yet. Your line manager sets them.', ''] : ['You have no OKRs yet.', tabBtn('okrs', 'Add OKR')]);
@@ -805,7 +812,7 @@ function viewDash(e) {
   </div><div class="stack">
     <section class="card s-attn"><div class="sec-h"><h2>Needs your attention</h2></div>
       ${todo.length ? `<div class="list">${todo.map(([t, b]) => `<div class="kr"><div class="t">${esc(t)}</div>${b}</div>`).join('')}</div>` : empty('You are all caught up.')}</section>
-    <section class="card s-lb"><div class="sec-h"><h2>Leaderboard</h2>${rows.length > 5 ? tabBtn('lead', 'See all', 'quiet') : ''}</div>
+    <section class="card s-lb"><div class="sec-h"><h2>Team leaderboard</h2>${rows.length > 5 ? tabBtn('lead', 'See all', 'quiet') : ''}</div>
       ${rows.length ? `<div class="list">${rows.slice(0, 5).map((r, i) => lbRow(r, i, e.name)).join('')}</div>` : empty('No one to rank yet.')}</section>
   </div></div>`;
 }
@@ -813,7 +820,7 @@ function viewDash(e) {
 function viewLead(e) {
   const all = lbRows(e).map((r, i) => ({r, i})), f = ff.lead;
   const rows = all.filter(({r}) => (!f.team || r.p.team === f.team) && hit(f.q, r.p.name, r.p.team, r.p.sub));
-  return `${pageHead('Leaderboard', 'Ranked by approved annual progress. The green chip shows the gain from key results approved in the selected week.', weekNav())}
+  return `${pageHead('Team leaderboard', 'Ranked by approved annual progress. Everyone in your team can see this page.', weekNav())}
   ${all.length > 1 ? fbar('lead', {ph: 'Search by name', team: teamsIn(all.map(x => x.r.p.name)), count: `Showing ${rows.length} of ${all.length}. Ranks stay the same when filtered.`}) : ''}
   <div class="card">${rows.length ? `<div class="list">${rows.map(({r, i}) => lbRow(r, i, e.name)).join('')}</div>` : empty(all.length ? 'No one matches these filters.' : 'No people to rank yet. The CEO adds people in the People tab.')}</div>`;
 }
@@ -935,7 +942,7 @@ function viewStand(e) {
   const sc = scope(e), weekItems = S.stand.filter(x => x.week === wk && sc.has(x.owner)), f = ff.stand;
   const items = weekItems.filter(x => (!f.st || x.status === f.st) && hit(f.q, x.owner, x.text));
   return `${pageHead('Weekly Standup', 'What everyone is working on this week.', weekNav())}
-  ${e.role !== 'hr' ? `<form class="card" data-submit="addstand"><label class="lbl" for="su-text">Add an activity</label><div class="row"><input type="text" class="grow" id="su-text" placeholder="What are you working on?"><button class="btn" type="submit">Add</button></div></form>` : ''}
+  ${e.role !== 'hr' ? `<form class="card" data-submit="addstand"><div class="row"><label class="sr" for="su-text">Add an activity</label><input type="text" class="grow" id="su-text" placeholder="What are you working on?"><button class="btn" type="submit">Add</button></div></form>` : ''}
   ${weekItems.length > 1 ? fbar('stand', {ph: 'Search by person or activity', st: SSTAT, count: `Showing ${items.length} of ${weekItems.length} activities`}) : ''}
   ${items.length ? grouped(items, 'owner').map(([o, list]) => { const d = list.filter(x => x.status === 'Done').length;
     return `<section class="card"><div class="person-h">${avatar(o)}<b class="grow">${esc(o)}</b><span class="sub num">${d} of ${list.length} done</span></div>${bar(d / list.length * 100, 'good')}
@@ -982,8 +989,7 @@ function viewDaily(e) {
     <button class="btn quiet sm" data-act="day" data-n="1" aria-label="Next day"${d >= today() ? ' disabled' : ''}>›</button>
     <button class="btn quiet sm" data-act="day" data-n="0"${d === today() ? ' disabled' : ''}>Today</button></div>`;
   return `${pageHead('Daily log', 'What everyone did today, checked against the work sources. A gap on one day means nothing; a pattern is worth a conversation.', nav)}
-  ${e.role !== 'hr' && d === today() ? `<form class="card" data-submit="adddaily"><label class="lbl" for="dl-text">Log what you did</label>
-    <div class="row"><input type="text" class="grow" style="flex-basis:260px" id="dl-text" placeholder="e.g. Engaged prospects on the new channel">
+  ${e.role !== 'hr' && d === today() ? `<form class="card" data-submit="adddaily"><div class="row"><label class="sr" for="dl-text">Log what you did</label><input type="text" class="grow" style="flex-basis:260px" id="dl-text" placeholder="e.g. Engaged prospects on the new channel">
       <input type="number" min="0" step="any" id="dl-n" placeholder="How many" aria-label="How many" style="width:120px">
       <input type="text" id="dl-unit" placeholder="Unit, e.g. prospects" aria-label="Unit" style="width:160px"><button class="btn" type="submit">Add</button></div>
     <p class="sub" style="margin:0">A number is optional, but it is what the check compares against.</p></form>` : ''}
@@ -1072,7 +1078,7 @@ function viewPerf(e) {
   const rows = all.filter(r => (perfTab === 'all' || (perfTab === 'top' ? top.includes(r.n) : r.band === perfTab)) && (!f.team || r.p.team === f.team) && (!q || r.n.toLowerCase().includes(q) || (r.p.title || '').toLowerCase().includes(q)))
     .sort((a, b) => perfTab === 'top' ? b.ix - a.ix : ({risk: 0, watch: 1, ok: 2})[a.band] - ({risk: 0, watch: 1, ok: 2})[b.band] || a.pct - b.pct);
   const segs = [['all', 'Everyone', all.length], ['risk', 'Bottom: at risk', counts.risk], ['watch', 'Watch', counts.watch], ['top', 'Top five', Math.min(5, all.length)]];
-  return `${pageHead('Performance', 'Live standing against the pace expected by now. Flags are prompts to have a conversation, not a verdict.')}
+  return `${pageHead('Performance signals', 'Standing against the pace expected by now, and the warning signs behind it. Only managers, HR and the CEO see this. Flags are prompts for a conversation, not a verdict.')}
   <div class="stats">
     ${stat('ros', 'At risk', counts.risk, counts.risk ? 'Two or more warning signs' : 'Nobody is flagged', null, 'perf')}
     ${stat('amb', 'Watch', counts.watch, 'One warning sign', null, 'perf')}
@@ -1090,25 +1096,39 @@ function viewPerf(e) {
 }
 
 function viewWelf(e) {
-  const f = ff.welf, q = f.q.trim().toLowerCase(), mine = welfareOf(e.name, wk), own = e.role !== 'hr';
+  const f = ff.welf, q = f.q.trim().toLowerCase(), mine = welfareOf(e.name, wk), sv = surveyFor(wk), own = e.role !== 'hr' && !!sv && !sv.closed;
   const sc = lbScope(e), team = isGroup(e) || e.role === 'manager';
   const names = team ? [...sc].filter(n => { const p = person(n); return p && !isGroup(p) && (!f.team || p.team === f.team) && (!q || n.toLowerCase().includes(q)); }).sort() : [];
   const rows = names.map(n => ({n, p: person(n), w: welfareOf(n, wk), flag: welfareFlag(n)}));
   const need = rows.filter(r => r.flag).length;
   const avg = rows.filter(r => r.w).length ? rows.filter(r => r.w).reduce((t, r) => t + r.w.workload, 0) / rows.filter(r => r.w).length : null;
-  const scale = (id, label, list, sel) => `<label class="f grow">${label}<select id="${id}">${list.map((l, i) => i ? `<option value="${i}"${sel === i ? ' selected' : ''}>${i} · ${l}</option>` : '').join('')}</select></label>`;
+  const scale = (id, label, list, sel) => `<label class="f grow">${label}<select id="${id}">${list.map((l, i) => i ? `<option value="${i}"${sel === i ? ' selected' : ''}>${esc(l)}</option>` : '').join('')}</select></label>`;
   const pend = team ? leavePending(e) : [];
   const myLeave = own ? leaveFor(e.name) : [];
-  return `${pageHead('Welfare and leave', 'A short weekly check-in on workload and wellbeing, plus time off. Managers and HR see their own people.', weekNav())}
+  const gotIt = responded(wk), miss = outstanding(wk);
+  const svCard = isGroup(e) ? `<section class="card"><div class="sec-h"><h2>Weekly check-in survey</h2>${sv ? chip(sv.closed ? 'Closed' : 'Open', sv.closed ? '' : 'good') : chip('Not sent', 'warn')}</div>
+    ${!sv ? `<p class="sub" style="margin:0">Nobody has been asked for a check-in this week.</p>
+      <div class="row"><button class="btn" data-act="sendsurvey">Send to ${plural(recipients().length, 'person', 'people')}</button><span class="sub">Nothing is emailed in this demo. It puts the check-in on their dashboard.</span></div>`
+      : `<p class="sub" style="margin:0">Sent by ${esc(sv.sentBy)} on ${esc(dateShort(sv.sentAt))} to ${plural(recipients().length, 'person', 'people')}.${sv.remindedAt ? ' Reminder sent ' + esc(dateShort(sv.remindedAt)) + '.' : ''}</p>
+      <div class="prog">${bar(gotIt.length / recipients().length * 100)}<span class="pc">${r0(gotIt.length / recipients().length * 100)}%</span></div>
+      <p class="sub" style="margin:0">${gotIt.length} of ${recipients().length} have replied.${miss.length ? ' Waiting on ' + esc(miss.map(p => p.name).join(', ')) + '.' : ' Everyone has replied.'}</p>
+      <div class="row">${miss.length && !sv.closed ? `<button class="btn ghost sm" data-act="remindsurvey">Send a reminder</button>` : ''}
+        ${sv.closed ? `<button class="btn quiet sm" data-act="reopensurvey">Reopen</button>` : `<button class="btn quiet sm" data-act="closesurvey">Close it</button>`}</div>`}</section>` : '';
+  return `${pageHead('Welfare and leave', 'A weekly check-in survey on workload and wellbeing, plus time off. Managers and HR see their own people.', weekNav())}
+  ${svCard}
+  ${e.role !== 'hr' && (!sv || sv.closed) ? `<div class="card">${empty(sv ? 'This week\'s check-in is closed.' : 'No check-in has been sent for this week yet.')}</div>` : ''}
   ${pend.length ? `<section class="card"><div class="sec-h"><h2>Leave to approve</h2>${chip(plural(pend.length, 'request', 'requests'), 'warn')}</div>
     <div class="list">${pend.map(l => `<div class="kr"><div class="person-h t">${avatar(l.owner)}<div style="min-width:0"><div><b>${esc(l.owner)}</b> <span class="sub">${esc(l.type)}</span></div>
       <div class="sub">${esc(new Date(l.from).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}))} to ${esc(new Date(l.to).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}))} · ${plural(l.days, 'day', 'days')} · ${leaveBal(l.owner)} days left this year</div></div></div>
     <div class="acts"><button class="btn sm" data-act="apleave" data-id="${l.id}">Approve</button><button class="btn ghost sm" data-act="rejleave" data-id="${l.id}">Decline</button></div></div>`).join('')}</div></section>` : ''}
-  ${own ? `<form class="card" data-submit="savewelf"><h2 style="font-size:16px">${mine ? 'Your check-in this week' : 'How is this week going?'}</h2>
-    <div class="row" style="align-items:flex-end">${scale('wf-load', 'Workload', WLOAD, mine?.workload || 3)}${scale('wf-mood', 'How you feel', MOOD, mine?.mood || 4)}
-      <label class="f grow">How likely are you to recommend working here? <span class="sub">(0 to 10)</span><select id="wf-enps"><option value="">Rather not say</option>${Array.from({length: 11}, (_, i) => `<option value="${i}"${mine?.enps === i ? ' selected' : ''}>${i}</option>`).join('')}</select></label></div>
-    <label class="f">Anything to add <span class="sub">(optional, your manager and HR can read this)</span><input type="text" id="wf-note" value="${esc(mine?.note || '')}" placeholder="Blockers, workload, anything you need"></label>
-    <div class="row"><button class="btn" type="submit">${mine ? 'Update check-in' : 'Send check-in'}</button>${mine ? `<span class="sub">Last updated ${esc(dateShort(mine.ts))}</span>` : ''}</div></form>
+  ${own ? `<form class="card" data-submit="savewelf"><div class="sec-h"><h2 style="font-size:16px">${mine ? 'Your check-in this week' : 'How is this week going?'}</h2>${mine ? chip('Sent ' + dateShort(mine.ts), 'good') : ''}</div>
+    <p class="sub" style="margin:0">Two questions, once a week. ${esc(approverOf({owner: e.name}))} and HR can read your answers.</p>
+    <div class="row" style="align-items:flex-end">${scale('wf-load', 'How heavy was your workload?', WLOAD, mine?.workload || 3)}${scale('wf-mood', 'How are you doing?', MOOD, mine?.mood || 4)}</div>
+    <label class="f"><span>Anything you want to flag? <span class="sub">(optional)</span></span><input type="text" id="wf-note" value="${esc(mine?.note || '')}" placeholder="Blockers, workload, anything you need"></label>
+    ${!enpsAsked(e.name) || mine?.enps != null ? `<div class="askonce"><label class="f" for="wf-enps">How likely are you to recommend working here, to someone looking for a job?</label>
+      <div class="row"><span class="sub">Not at all likely</span><select id="wf-enps"><option value="">Rather not say</option>${Array.from({length: 11}, (_, i) => `<option value="${i}"${mine?.enps === i ? ' selected' : ''}>${i}</option>`).join('')}</select><span class="sub">Extremely likely</span>
+      <span class="sub">· asked once a month</span></div></div>` : '<input type="hidden" id="wf-enps" value="">'}
+    <div class="row"><button class="btn" type="submit">${mine ? 'Update check-in' : 'Send check-in'}</button></div></form>
   <section class="card"><div class="sec-h"><h2>Your leave</h2><span class="sub">${leaveBal(e.name)} of ${ALLOWANCE} days left</span></div>
     <form class="row" data-submit="addleave" style="align-items:flex-end"><label class="f">From<input type="date" id="lv-from"></label><label class="f">To<input type="date" id="lv-to"></label>
       <label class="f">Type<select id="lv-type"><option>Annual leave</option><option>Sick leave</option><option>Unpaid leave</option><option>Compassionate leave</option></select></label>
@@ -1269,9 +1289,10 @@ function build() {
   const real = realMe();
   const e = eff(), appr = e.role === 'manager' || e.role === 'ceo';
   const pend = appr ? pendingFor(e).length + revsFor(e).length : 0;
-  const nav = [['dash', 'Dashboard', 'Overview'], ['lead', 'Leaderboard', 'Overview'], ['okrs', 'OKRs', 'Goals'], ...(appr ? [['appr', 'Approvals', 'Goals']] : []),
+  const badges = {appr: pend, welf: surveyDue(e) ? 1 : 0};
+  const nav = [['dash', 'Dashboard', 'Overview'], ['lead', 'Team leaderboard', 'Overview'], ['okrs', 'OKRs', 'Goals'], ...(appr ? [['appr', 'Approvals', 'Goals']] : []),
     ['daily', 'Daily log', 'Rhythm'], ['stand', 'Standup', 'Rhythm'], ['review', 'Friday Review', 'Rhythm'],
-    ...(isGroup(e) || e.role === 'manager' ? [['perf', 'Performance', 'People']] : []), ['rev', 'Reviews', 'People'], ...(isGroup(e) || e.role === 'manager' ? [['hire', 'Hiring', 'People']] : []), ['welf', 'Welfare and leave', 'People'],
+    ...(isGroup(e) || e.role === 'manager' ? [['perf', 'Performance signals', 'People']] : []), ['rev', 'Reviews', 'People'], ...(isGroup(e) || e.role === 'manager' ? [['hire', 'Hiring', 'People']] : []), ['welf', 'Welfare and leave', 'People'],
     ...(isGroup(e) ? [['people', 'Directory', 'People']] : [])];
   if (!nav.some(t => t[0] === tab)) tab = 'dash';
   const views = {hire: viewHire, rev: viewRev, daily: viewDaily, dash: viewDash, lead: viewLead, okrs: viewOkrs, appr: viewApprovals, stand: viewStand, review: viewReview, people: viewPeople, perf: viewPerf, welf: viewWelf};
@@ -1282,7 +1303,7 @@ function build() {
     <aside class="side${navOpen ? ' open' : ''}" aria-label="Sidebar">
       <div class="side-brand"><span class="logo" aria-hidden="true"></span><span>Team OKR Tracker</span></div>
       <nav aria-label="Main">${groups.map(g => `<div class="nav-lbl">${esc(g)}</div>${nav.filter(n => n[2] === g).map(([k, l]) =>
-        `<button class="nav-i" data-act="tab" data-t="${k}"${tab === k ? ' aria-current="page"' : ''}>${icon(k)}<span>${esc(l)}</span>${k === 'appr' && pend ? `<span class="badge">${pend}</span>` : ''}</button>`).join('')}`).join('')}</nav>
+        `<button class="nav-i" data-act="tab" data-t="${k}"${tab === k ? ' aria-current="page"' : ''}>${icon(k)}<span>${esc(l)}</span>${badges[k] ? `<span class="badge">${badges[k]}</span>` : ''}</button>`).join('')}`).join('')}</nav>
       <div class="side-user"><div class="me">${avatar(e.name)}<div class="t"><b>${esc(e.name)}</b><span>${chip(ROLES[e.role] || e.role, ROLE_TONE[e.role])} ${esc(where(e))}</span></div></div>
         <button class="btn ghost sm" data-act="dossier" data-id="${e.id}">My record</button><button class="btn ghost sm" data-act="signout">${icon('swap')}Switch user</button></div>
     </aside>
@@ -1329,6 +1350,9 @@ root.addEventListener('click', ev => {
   else if (a === 'closedos') dossier = null;
   else if (a === 'perftab') perfTab = b.dataset.v;
   else if (a === 'dirview') dirView = b.dataset.v;
+  else if (a === 'sendsurvey') { if (isGroup(e) && !surveyFor(wk)) { add('surveys', {week: wk, sentAt: Date.now(), sentBy: e.name, remindedAt: 0, closed: false}); toast('Check-in sent to ' + recipients().length + ' people.'); } }
+  else if (a === 'remindsurvey') { const sv = surveyFor(wk); if (sv && isGroup(e)) { sv.remindedAt = Date.now(); commit(); toast('Reminder sent to ' + outstanding(wk).length + ' people.'); } }
+  else if (a === 'closesurvey' || a === 'reopensurvey') { const sv = surveyFor(wk); if (sv && isGroup(e)) { sv.closed = a === 'closesurvey'; commit(); toast(sv.closed ? 'Check-in closed.' : 'Check-in reopened.'); } }
   else if (a === 'openrev') openRev = b.dataset.n;
   else if (a === 'newrole') openRole = openRole === 'new' ? null : 'new';
   else if (a === 'cancelrole') openRole = null;
