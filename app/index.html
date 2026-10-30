@@ -355,7 +355,7 @@ function eff() { const r = realMe(); if (!r) return null; if (viewAs && r.role =
 const CFG0 = () => ({
   subs: ['NativeTalk', 'Connect', 'Cyber Villa'],
   leave: [{type: 'Annual leave', days: 25}, {type: 'Sick leave', days: 10}, {type: 'Compassionate leave', days: 5}, {type: 'Unpaid leave', days: 0}],
-  yearStart: 0, staleDays: 14, behindAt: 60, aheadAt: 110,
+  yearStart: 0, staleDays: 14, riskAt: 80, behindAt: 60, aheadAt: 110,
   standupWeeks: 2, enpsDays: 28, reviewDueDays: 21, onbWho: ['HR', 'Manager', 'New hire']
 });
 // Live reference into the config, so every call site stays valid when it is edited in place.
@@ -383,9 +383,9 @@ const gain = (n, w) => S.logs.filter(l => l.owner === n && l.week === w).reduce(
 // Milestone by default. A target counts up; a level is the latest reading.
 const KRTYPE = [['binary', 'Done or not done'], ['count', 'Counts up to a target'], ['level', 'A reading against a target']];
 const krMeasured = k => (k.type === 'count' || k.type === 'level') && +k.target > 0;
-const krFrac = k => k.pct === 100 ? 1 : krMeasured(k) ? Math.min(1, (+k.cur || 0) / +k.target) : 0;
-const krMeasure = k => `${fn(+k.cur || 0)} of ${fn(k.target)}${k.unit ? ' ' + k.unit : ''}`;
-const okrPct = o => o.krs?.length ? o.krs.reduce((t, k) => t + krFrac(k), 0) / o.krs.length * 100 : 0;
+const krFrac = (k, o, i) => k.pct === 100 ? 1 : krMeasured(k) ? Math.min(1, (o ? krCur(o, k, i) : (+k.cur || 0)) / +k.target) : 0;
+const krMeasure = (o, k, i) => `${fn(krCur(o, k, i))} of ${fn(k.target)}${k.unit ? ' ' + k.unit : ''}`;
+const okrPct = o => o.krs?.length ? o.krs.reduce((t, k, i) => t + krFrac(k, o, i), 0) / o.krs.length * 100 : 0;
 const personOkrs = n => S.okrs.filter(o => o.owner === n);
 const personPct = n => { const a = personOkrs(n); return a.length ? a.reduce((s,o) => s + okrPct(o), 0) / a.length : 0; };
 const companyPct = e => { const a = S.okrs.filter(o => o.owner === 'Company' && cv(o, e)); return a.length ? a.reduce((s,o) => s + okrPct(o), 0) / a.length : null; };
@@ -401,12 +401,22 @@ const dateShort = t => new Date(t).toLocaleDateString(undefined, {day: 'numeric'
 const OKRST = ['On track', 'At risk', 'Off track'];
 const OKRST_TONE = {'On track': 'good', 'At risk': 'warn', 'Off track': 'bad'};
 
-const okrStatus = o => o.status || 'On track';
+function autoStatus(o) {
+  const exp = expectedPace(), pct = okrPct(o);
+  const ratio = exp ? pct / exp * 100 : 100;
+  const late = o.krs.filter(k => overdue(o, k)).length;
+  if (ratio + 0.5 < S.cfg.behindAt || late > 1) return 'Off track';
+  if (ratio + 0.5 < S.cfg.riskAt || late) return 'At risk';
+  return 'On track';
+}
+const okrStatus = o => o.statusBy ? o.status : autoStatus(o);
+const isOverridden = o => !!o.statusBy && o.status !== autoStatus(o);
 const okrUpdates = o => o.updates || [];
 const lastUpd = o => { const u = okrUpdates(o); return u.length ? u[u.length - 1] : null; };
 const staleDays = o => { const u = lastUpd(o); return u ? Math.floor((Date.now() - u.at) / 86400000) : null; };
 const isStale = o => { const d = staleDays(o); return d === null || d > S.cfg.staleDays; };
-const krStale = k => krMeasured(k) && k.pct !== 100 && (!k.curAt || Date.now() - k.curAt > S.cfg.staleDays * 86400000);
+// Only a hand-entered number can go stale; an automatic one keeps itself current.
+const krStale = (o, k, i) => krMeasured(k) && k.pct !== 100 && !krAuto(o, k, i) && (!k.curAt || Date.now() - k.curAt > S.cfg.staleDays * 86400000);
 const staleLabel = o => { const d = staleDays(o); return d === null ? 'never updated' : d === 0 ? 'updated today' : d === 1 ? 'updated yesterday' : 'updated ' + d + ' days ago'; };
 const krRef = x => { if (!x.okr) return null; const o = S.okrs.find(y => y.id === x.okr); const k = o && o.krs[x.kr]; return k ? {o, k} : null; };
 const krOpts = n => S.okrs.filter(o => o.owner === n).flatMap(o => o.krs.map((k, i) => ({v: o.id + '|' + i, l: k.title, g: o.objective})));
@@ -414,6 +424,11 @@ const activityOn = (oid, ki) => S.stand.filter(x => x.okr === oid && x.kr === ki
 // The work logged against a key result: evidence of effort, not a measure of progress.
 const actLine = x => `<div class="kr"><div class="t">${esc(x.text)}<div class="sub">${esc(x.owner)} · ${esc(dayLabel(x.day || x.week))}${x.n != null ? ' · ' + fmt(x.n) + ' ' + esc(x.unit || '') : ''}</div></div>${chip(x.status, statTone(x.status))}</div>`;
 const loggedTotal = (oid, ki) => activityOn(oid, ki).filter(x => x.status === 'Done' && x.n != null).reduce((t, x) => t + (+x.n || 0), 0);
+const hasLog = (oid, ki) => activityOn(oid, ki).some(x => x.status === 'Done' && x.n != null);
+// A counting key result reads itself off the standup log. A reading has nothing to read from,
+// so it stays manual. Either can be overridden by its owner.
+const krAuto = (o, k, i) => k.type === 'count' && hasLog(o.id, i) && k.curManual == null;
+const krCur = (o, k, i) => krAuto(o, k, i) ? loggedTotal(o.id, i) : (k.curManual != null ? +k.curManual : (+k.cur || 0));
 const actList = rows => `<div class="actlog"><div class="list">${rows.map(actLine).join('')}</div></div>`;
 const krState = k => k.pct === 100 ? 'approved' : k.req ? 'awaiting' : 'open';
 
@@ -445,23 +460,19 @@ function risk(n) {
   const off = mine.filter(o => okrStatus(o) === 'Off track'), atRisk = mine.filter(o => okrStatus(o) === 'At risk');
   const stale = mine.filter(isStale);
   const said = [], chase = [];
-  off.forEach(o => said.push(`Says "${o.objective}" is off track`));
-  atRisk.forEach(o => said.push(`Says "${o.objective}" is at risk`));
+  off.forEach(o => said.push(`"${o.objective}" is off track${o.statusBy ? ', set by ' + o.statusBy : ''}`));
+  atRisk.forEach(o => said.push(`"${o.objective}" is at risk${o.statusBy ? ', set by ' + o.statusBy : ''}`));
   if (!mine.length) chase.push('No OKRs set yet');
-  stale.forEach(o => chase.push(`"${o.objective}" ${staleLabel(o)}`));
+  stale.forEach(o => chase.push(`No note on "${o.objective}" since it was ${staleLabel(o)}`));
   if (sr / 25 < S.cfg.standupWeeks) chase.push(`Logged a standup in ${r0(sr / 25)} of the last 4 weeks`);
   if (od) chase.push(plural(od, 'key result is', 'key results are') + ' past their due month');
   // Where a goal is measured, check what the number says against what its owner said.
-  mine.filter(o => lastUpd(o) && o.krs.some(krMeasured)).forEach(o => {
-    const p2 = okrPct(o), st = okrStatus(o);
-    if (st === 'On track' && p2 + 0.5 < exp * S.cfg.behindAt / 100) chase.push(`Says "${o.objective}" is on track, but it is at ${r0(p2)}% against ${r0(exp)}% expected`);
-    else if (st !== 'On track' && p2 > exp * S.cfg.aheadAt / 100) chase.push(`Says "${o.objective}" is ${st.toLowerCase()} but it is at ${r0(p2)}%, ahead of the ${r0(exp)}% expected. Is the target right?`);
-  });
-  const numStale = mine.reduce((t, o) => t + o.krs.filter(krStale).length, 0);
+  mine.filter(isOverridden).forEach(o => chase.push(`Set "${o.objective}" to ${okrStatus(o).toLowerCase()} by hand; the numbers say ${autoStatus(o).toLowerCase()}`));
+  const numStale = mine.reduce((t, o) => t + o.krs.filter((k, i) => krStale(o, k, i)).length, 0);
   if (numStale) chase.push(plural(numStale, 'measured key result has', 'measured key results have') + ' not moved in over ' + S.cfg.staleDays + ' days');
-  mine.forEach(o => o.krs.forEach((k, i) => { if (k.type !== 'count' || k.pct === 100) return;
+  mine.forEach(o => o.krs.forEach((k, i) => { if (k.type !== 'count' || k.pct === 100 || k.curManual == null) return;
     const lt = loggedTotal(o.id, i);
-    if (lt > (+k.cur || 0)) chase.push(`Standup log adds up to ${fn(lt)} on "${k.title}" but the number says ${fn(+k.cur || 0)}`);
+    if (lt > +k.curManual) chase.push(`Standup log adds up to ${fn(lt)} on "${k.title}" but the number was set by hand to ${fn(+k.curManual)}`);
   }));
   const band = off.length ? 'off' : atRisk.length ? 'risk' : (chase.length ? 'watch' : 'ok');
   return {n, p, pct, exp, sr, od, said, chase, flags: [...said, ...chase], stale: stale.length, numStale, noOkrs: !mine.length,
@@ -850,8 +861,8 @@ function buildCsv(kind, e) {
   if (kind === 'perf') return toCsv([['Name', 'Job title', 'Subsidiary', 'Team', 'Standing', 'Owner raised', 'Needs chasing', 'Progress %', 'Expected %', 'Delivering %', 'Standups %', 'Stale goals', 'Stale numbers', 'Last review'],
     ...[...lbScope(e)].map(n => risk(n)).filter(Boolean).map(r => [r.n, r.p.title, r.p.sub, r.p.team, BAND[r.band][0], r.said.join('; '), r.chase.join('; '), r0(r.pct), r0(r.exp), r0(r.ix), r0(r.sr), r.stale, r.numStale, r.rating ? r.rating.rating + '/5' : ''])]);
   if (kind === 'okrs') return toCsv([['Owner', 'Objective', 'Year', 'Key result', 'Kind', 'Current', 'Target', 'Unit', 'Progress %', 'Due month', 'Status', 'Approved by', 'Approved on'],
-    ...S.okrs.filter(o => o.owner === 'Company' ? cv(o, e) : scope(e).has(o.owner)).flatMap(o => o.krs.map(k =>
-      [ownerLabel(o), o.objective, o.year, k.title, krMeasured(k) ? (k.type === 'count' ? 'Counts up' : 'Reading') : 'Done or not done', krMeasured(k) ? (k.cur ?? 0) : '', krMeasured(k) ? k.target : '', k.unit || '', r0(krFrac(k) * 100), k.month != null ? MONFULL[k.month] : '', k.pct === 100 ? 'Approved' : k.req ? 'Awaiting approval' : overdue(o, k) ? 'Overdue' : 'Open', k.apBy || '', d(k.apAt)]))]);
+    ...S.okrs.filter(o => o.owner === 'Company' ? cv(o, e) : scope(e).has(o.owner)).flatMap(o => o.krs.map((k, i) =>
+      [ownerLabel(o), o.objective, o.year, k.title, krMeasured(k) ? (k.type === 'count' ? 'Counts up' : 'Reading') : 'Done or not done', krMeasured(k) ? krCur(o, k, i) : '', krMeasured(k) ? k.target : '', k.unit || '', r0(krFrac(k, o, i) * 100), k.month != null ? MONFULL[k.month] : '', k.pct === 100 ? 'Approved' : k.req ? 'Awaiting approval' : overdue(o, k) ? 'Overdue' : 'Open', k.apBy || '', d(k.apAt)]))]);
   if (kind === 'stand') return toCsv([['Date', 'Week', 'Person', 'Activity', 'Status', 'Figure', 'Unit'],
     ...S.stand.filter(x => scope(e).has(x.owner)).sort((a, b) => (b.day || b.week).localeCompare(a.day || a.week)).map(x => [x.day || x.week, x.week, x.owner, x.text, x.status, x.n ?? '', x.unit || ''])]);
   if (kind === 'leave') return toCsv([['Person', 'Type', 'From', 'To', 'Days', 'Status', 'Approved by'],
@@ -880,6 +891,7 @@ function readCfg(validate) {
   const n = (id, lo, hi, cur) => { const v = Math.round(+g(id).value); return isNaN(v) ? cur : Math.min(hi, Math.max(lo, v)); };
   c.yearStart = +g('cf-ys').value;
   c.staleDays = n('cf-stale', 1, 365, c.staleDays);
+  c.riskAt = n('cf-risk', 1, 200, c.riskAt);
   c.behindAt = n('cf-behind', 1, 100, c.behindAt);
   c.aheadAt = n('cf-ahead', 100, 500, c.aheadAt);
   c.standupWeeks = n('cf-su', 0, 4, c.standupWeeks);
@@ -1107,18 +1119,18 @@ function okrCard(o, e) {
   const editUi = !canEdit ? '' : o.rev ? `<span class="acts">${chip('Change awaiting approval', 'warn')}${o.rev.by === e.name ? `<button class="btn quiet sm" data-act="cancelrev" data-id="${o.id}">Cancel change</button>` : ''}</span>` : `<button class="btn quiet sm" data-act="editokr" data-id="${o.id}">Edit</button>`;
   const mine = o.owner !== 'Company' ? o.owner === e.name : isGroup(e);
   const st = okrStatus(o), lu = lastUpd(o), stale = isStale(o);
-  const measKrs = o.krs.map((k, i) => ({k, i})).filter(x => krMeasured(x.k) && x.k.pct !== 100);
+  const manKrs = o.krs.map((k, i) => ({k, i})).filter(x => krMeasured(x.k) && x.k.pct !== 100 && !krAuto(o, x.k, x.i));
+  const auto = autoStatus(o), over = !!o.statusBy;
   const upd = okrUpd === o.id ? `<form class="ci-form" data-submit="saveupd" style="flex-direction:column;align-items:stretch;gap:10px"><input type="hidden" id="up-id" value="${o.id}">
-    <div class="row"><label class="f" style="flex:none">Where does it stand?<select id="up-st">${OKRST.map(x => `<option${st === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select></label>
-      <label class="f grow" style="flex-basis:260px">What changed?<input type="text" id="up-text" placeholder="One line on progress, blockers or what happens next"></label></div>
-    ${measKrs.length ? `<div style="display:flex;flex-direction:column;gap:6px"><span class="lbl">Where the numbers are now</span>
-      ${measKrs.map(({k, i}) => { const sg = k.type === 'count' ? loggedTotal(o.id, i) : 0;
-        return `<div class="row" style="flex-wrap:nowrap"><span class="grow" style="min-width:0">${esc(k.title)}</span>
-          <input type="number" min="0" step="any" id="up-kr-${i}" value="${esc(String(k.cur ?? 0))}" aria-label="Current value for ${esc(k.title)}" style="width:120px">
-          <span class="sub num" style="white-space:nowrap">of ${fn(k.target)}${k.unit ? ' ' + esc(k.unit) : ''}</span>
-          ${sg > (+k.cur || 0) ? `<button type="button" class="btn quiet sm" data-act="usesugg" data-o="${o.id}" data-i="${i}" data-v="${sg}">Standups say ${fn(sg)}</button>` : ''}</div>`; }).join('')}</div>` : ''}
-    <div class="row"><button class="btn" type="submit">Post check-in</button><button type="button" class="btn quiet" data-act="cancelupd">Cancel</button></div></form>` : '';
-  return `<article class="card"><div class="okr-h"><div class="grow"><h3>${esc(o.objective)}</h3><div class="sub">${esc(ownerLabel(o))} · ${esc(o.year)} · ${plural(n, 'key result', 'key results')}</div></div><span class="acts">${chip(st, OKRST_TONE[st])}${stale ? chip(staleLabel(o), 'bad') : `<span class="sub">${esc(staleLabel(o))}</span>`}${mine && !upd ? `<button class="btn ${stale ? '' : 'quiet'} sm" data-act="openupd" data-id="${o.id}">Check in</button>` : ''}${editUi}${delUi}</span></div>
+    <p class="sub" style="margin:0">The standing is worked out from progress against the ${r0(expectedPace())}% expected by now, and anything past its month. Set it yourself only when you know something the numbers do not.</p>
+    <div class="row"><label class="f" style="flex:none">Standing<select id="up-st"><option value="">Leave it automatic (${esc(auto)})</option>${OKRST.map(x => `<option${over && o.status === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select></label>
+      <label class="f grow" style="flex-basis:260px">Add a note <span class="sub">(optional)</span><input type="text" id="up-text" placeholder="Context the numbers do not show"></label></div>
+    ${manKrs.length ? `<div style="display:flex;flex-direction:column;gap:6px"><span class="lbl">Numbers nobody can read off the work log</span>
+      ${manKrs.map(({k, i}) => `<div class="row" style="flex-wrap:nowrap"><span class="grow" style="min-width:0">${esc(k.title)}</span>
+          <input type="number" min="0" step="any" id="up-kr-${i}" value="${esc(String(krCur(o, k, i)))}" aria-label="Current value for ${esc(k.title)}" style="width:120px">
+          <span class="sub num" style="white-space:nowrap">of ${fn(k.target)}${k.unit ? ' ' + esc(k.unit) : ''}</span></div>`).join('')}</div>` : ''}
+    <div class="row"><button class="btn" type="submit">Save</button><button type="button" class="btn quiet" data-act="cancelupd">Cancel</button></div></form>` : '';
+  return `<article class="card"><div class="okr-h"><div class="grow"><h3>${esc(o.objective)}</h3><div class="sub">${esc(ownerLabel(o))} · ${esc(o.year)} · ${plural(n, 'key result', 'key results')}</div></div><span class="acts">${chip(st, OKRST_TONE[st])}<span class="sub">${over ? 'set by ' + esc(o.statusBy) : 'worked out from the numbers'}</span>${over && mine ? `<button class="linkish" data-act="clearover" data-id="${o.id}">use automatic</button>` : ''}${mine && !upd ? `<button class="btn quiet sm" data-act="openupd" data-id="${o.id}">${manKrs.length ? 'Numbers and notes' : 'Add a note'}</button>` : ''}${editUi}${delUi}</span></div>
     ${upd}
     ${lu ? `<div class="sub">${esc(lu.by)}: ${esc(lu.text)}</div>` : ''}
     <div class="prog">${bar(p)}<span class="pc">${r0(p)}%</span></div>
@@ -1136,11 +1148,10 @@ function okrCard(o, e) {
       }
       const acts = activityOn(o.id, i), openK = krOpen === o.id + '|' + i;
       const actBtn = acts.length ? `<button class="linkish" data-act="krlog" data-o="${o.id}" data-i="${i}" aria-expanded="${openK}">${plural(acts.length, 'activity', 'activities')} logged${acts.filter(x => x.status === 'Done').length ? ', ' + acts.filter(x => x.status === 'Done').length + ' done' : ''}</button>` : '<span>nothing logged against this yet</span>';
-      const meas = krMeasured(k), frac = krFrac(k), sugg = k.type === 'count' ? loggedTotal(o.id, i) : 0;
+      const meas = krMeasured(k), frac = krFrac(k, o, i), isAuto = krAuto(o, k, i);
       const valUi = !meas ? '' : `<div class="measure">
         <div class="prog">${bar(frac * 100, frac >= 1 ? 'good' : '')}<span class="pc">${r0(frac * 100)}%</span></div>
-        <div class="row" style="gap:8px"><span class="sub num">${esc(krMeasure(k))}</span>${krStale(k) ? chip(k.curAt ? 'number ' + Math.floor((Date.now() - k.curAt) / 86400000) + ' days old' : 'never set', 'warn') : ''}
-          ${canKr && k.pct !== 100 && sugg > (+k.cur || 0) ? `<span class="sub">standups say ${fn(sugg)}</span>` : ''}</div></div>`;
+        <div class="row" style="gap:8px"><span class="sub num">${esc(krMeasure(o, k, i))}</span>${isAuto ? `<span class="sub">counted from the standup log</span>` : krStale(o, k, i) ? chip(k.curAt ? 'number ' + Math.floor((Date.now() - k.curAt) / 86400000) + ' days old' : 'never set', 'warn') : ''}</div></div>`;
       return `<div class="krwrap"><div class="kr"><div class="t">${esc(k.title)}<div class="sub num">${fmt(wt)}% of this OKR · ${actBtn}</div></div><div class="acts">${due}${status}${mv}${act}</div></div>${valUi}${openK ? actList(acts) : ''}</div>`;
     }).join('')}</div></article>`;
 }
@@ -1180,7 +1191,7 @@ function viewOkrs(e) {
     <div class="row between"><div class="row"><button type="button" class="btn ghost sm" data-act="addkr"${n >= 20 ? ' disabled' : ''}>+ Add key result</button><span class="sub">2 to 20 key results</span></div>
     <p class="sub" style="flex-basis:100%;margin:0">Give a key result a target when it is countable, so progress shows as you go. Leave it as done or not done when it is a one-off. ${draft.owner && draft.owner.startsWith('Company') ? 'Company OKRs are annual and stay in place all year.' : 'Plan each key result for a month. You can adjust personal OKRs every month, and changes are approved by the line manager. Make each one specific, measurable, achievable, realistic and time-bound.'}</p>
     <div class="row"><button type="button" class="btn quiet" data-act="newokr">Cancel</button><button class="btn" type="submit">Save OKR</button></div></div></form>` : '';
-  return `${pageHead('OKRs', 'Annual goals and their key results. Each key result is worth an equal share of its OKR.', `<div class="row">${newBtn}${expBtn('okrs')}</div>`)}
+  return `${pageHead('OKRs', 'Annual goals and their key results. Standing is worked out from the numbers; counting key results read themselves off the standup log.', `<div class="row">${newBtn}${expBtn('okrs')}</div>`)}
   ${e.role === 'member' ? `<div class="banner info"><span>Your line manager sets your OKRs. You can edit them, and ${esc(approverOf({owner: e.name}))} has to approve each change before it takes effect.</span></div>` : ''}
   ${form}
   ${tabs}
@@ -1382,10 +1393,10 @@ function viewPerf(e) {
   const rows = all.filter(r => (perfTab === 'all' || (perfTab === 'top' ? top.includes(r.n) : r.band === perfTab)) && (!f.team || r.p.team === f.team) && (!q || r.n.toLowerCase().includes(q) || (r.p.title || '').toLowerCase().includes(q)))
     .sort((a, b) => perfTab === 'top' ? b.ix - a.ix : ({off: 0, risk: 1, watch: 2, ok: 3})[a.band] - ({off: 0, risk: 1, watch: 2, ok: 3})[b.band] || a.pct - b.pct);
   const segs = [['all', 'Everyone', all.length], ['off', 'Off track', counts.off], ['risk', 'At risk', counts.risk], ['watch', 'Needs a nudge', counts.watch], ['top', 'Top five', Math.min(5, all.length)]];
-  return `${pageHead('Performance signals', 'What each person says about their own goals, and where nobody has said anything lately. Only managers, HR and the CEO see this. Ratings come from the review cycle, not from this page.', expBtn('perf'))}
+  return `${pageHead('Performance signals', 'Where each person stands, worked out from their numbers, and what needs chasing. Only managers, HR and the CEO see this. Ratings come from the review cycle, not from this page.', expBtn('perf'))}
   <div class="stats">
-    ${stat('ros', 'Flagged by their owner', counts.off + counts.risk, counts.off + counts.risk ? 'People who say a goal is at risk or off track' : 'Nobody has raised a flag', null, 'perf')}
-    ${stat('amb', 'Nothing heard', staleN, `Goals with no update in over ${S.cfg.staleDays} days`, null, 'perf')}
+    ${stat('ros', 'Behind or at risk', counts.off + counts.risk, counts.off + counts.risk ? 'Worked out from progress against the expected pace' : 'Nobody is behind', null, 'perf')}
+    ${stat('amb', 'No word from the owner', staleN, `Goals with no note in over ${S.cfg.staleDays} days`, null, 'perf')}
     ${stat('tea', 'On track', counts.ok, 'Current and no flags raised', null, 'perf')}
     ${stat('vio', 'Ahead of plan', all.filter(r => r.ix >= S.cfg.aheadAt).length, `Past the ${r0(expectedPace())}% expected by month ${goalMonth()} of 12`, null, 'perf')}</div>
   ${noOkrs.length ? `<div class="banner"><span>${plural(noOkrs.length, 'person has', 'people have')} no OKRs set: ${esc(noOkrs.map(r => r.n).join(', '))}. That is their manager's to fix, not a performance flag.</span></div>` : ''}
@@ -1394,7 +1405,7 @@ function viewPerf(e) {
   <div class="card">${rows.length ? `<div class="list">${rows.map(r => `<div class="prow">
     <div class="person-h grow">${avatar(r.n)}<div style="min-width:0"><div><b>${dosLink(e, r.p)}</b> ${chip(BAND[r.band][0], BAND[r.band][1])}${r.ix >= S.cfg.aheadAt ? chip('Ahead of plan', 'vio') : ''}${r.band === 'ok' && r.ix >= S.cfg.aheadAt && dueReview(r.p) ? chip('Review due', 'acc') : ''}</div>
       <div class="sub">${esc(r.p.title || ROLES[r.p.role])} · ${esc(where(r.p))}</div>
-      ${r.said.length ? `<div class="flagset"><span class="lbl">They raised</span><ul class="flags said">${r.said.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
+      ${r.said.length ? `<div class="flagset"><span class="lbl">Standing</span><ul class="flags said">${r.said.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
       ${r.chase.length ? `<div class="flagset"><span class="lbl">Needs chasing</span><ul class="flags">${r.chase.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
       ${!r.said.length && !r.chase.length ? '<div class="sub">Goals current, nothing raised.</div>' : ''}</div></div>
     <div class="pcol"><div class="sub">Delivering <b>${r0(r.ix)}%</b> of what is expected by now</div><div class="prog">${bar(r.pct, r.pct >= r.exp ? 'good' : r.pct < r.exp * S.cfg.behindAt / 100 ? 'bad' : 'warm')}<span class="pc">${r0(r.pct)}%</span></div>
@@ -1504,7 +1515,7 @@ function viewDossier(e) {
       <div class="list">${done.length ? done.slice(0, 8).map(({o, k}) => `<div class="kr"><div class="t">${esc(k.title)}<div class="sub">${esc(o.objective)}</div></div><div class="acts">${chip('Approved by ' + (k.apBy || '—') + ' · ' + dateShort(k.apAt), 'good')}</div></div>`).join('') : '<div class="sub">Nothing approved yet.</div>'}</div></section>
   </div><div class="stack">
     <section class="card"><div class="sec-h"><h2>Standing</h2></div>
-      ${r ? `${r.said.length ? `<div class="flagset"><span class="lbl">They raised</span><ul class="flags said">${r.said.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
+      ${r ? `${r.said.length ? `<div class="flagset"><span class="lbl">Standing</span><ul class="flags said">${r.said.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
         ${r.chase.length ? `<div class="flagset"><span class="lbl">Needs chasing</span><ul class="flags">${r.chase.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
         ${!r.said.length && !r.chase.length ? '<p class="sub">Goals current, nothing raised.</p>' : ''}
         <p class="sub">${r.rating ? 'Last review: ' + r.rating.rating + '/5 by ' + esc(r.rating.by) + ' in ' + esc(r.rating.cycle) + '.' : 'No completed review yet.'}</p>` : '<p class="sub">Group-level roles are not ranked.</p>'}</section>
@@ -1574,7 +1585,8 @@ function viewSet(e) {
     <div class="row" style="align-items:flex-start">
       <label class="f"><span>The goal year starts in</span><select id="cf-ys">${MONFULL.map((m, i) => `<option value="${i}"${c.yearStart === i ? ' selected' : ''}>${esc(m)}</option>`).join('')}</select><span class="sub">Sets what "expected by now" means</span></label>
       ${num('cf-stale', 'Chase a goal with no update after', c.staleDays, 'days')}
-      ${num('cf-behind', 'Flag a goal claimed on track below', c.behindAt, '% of expected pace')}
+      ${num('cf-risk', 'Call a goal at risk below', c.riskAt, '% of expected pace')}
+      ${num('cf-behind', 'Call it off track below', c.behindAt, '% of expected pace')}
       ${num('cf-ahead', 'Count someone ahead of plan above', c.aheadAt, '% of expected pace')}</div></section>
 
   <section class="card"><div class="sec-h"><h2>Rhythm</h2></div>
@@ -1734,7 +1746,7 @@ root.addEventListener('click', ev => {
   else if (a === 'rmow') { if (isGroup(e)) { readCfg(); if (S.cfg.onbWho.length > 1) S.cfg.onbWho.splice(i, 1); } }
   else if (a === 'savecfg') { if (isGroup(e)) { const err = readCfg(true); toast(err || 'Settings saved.'); } }
   else if (a === 'resetcfg') { if (isGroup(e)) { const d = CFG0(); S.cfg.subs.length = 0; d.subs.forEach(x => S.cfg.subs.push(x));
-      Object.assign(S.cfg, {leave: d.leave, yearStart: d.yearStart, staleDays: d.staleDays, behindAt: d.behindAt, aheadAt: d.aheadAt, standupWeeks: d.standupWeeks, enpsDays: d.enpsDays, reviewDueDays: d.reviewDueDays, onbWho: d.onbWho});
+      Object.assign(S.cfg, {leave: d.leave, yearStart: d.yearStart, staleDays: d.staleDays, riskAt: d.riskAt, behindAt: d.behindAt, aheadAt: d.aheadAt, standupWeeks: d.standupWeeks, enpsDays: d.enpsDays, reviewDueDays: d.reviewDueDays, onbWho: d.onbWho});
       toast('Back to the defaults.'); } }
   else if (a === 'export') { exportCsv(b.dataset.x, e); return; }
   else if (a === 'pickcsv') { const el = $('#csv-in'); if (el) { el.value = ''; el.click(); } return; }
@@ -1770,7 +1782,7 @@ root.addEventListener('click', ev => {
     if (l && lbScope(e).has(l.owner) && l.owner !== e.name) { l.status = a === 'apleave' ? 'Approved' : 'Declined'; l.apBy = e.name; commit(); toast(a === 'apleave' ? 'Leave approved.' : 'Leave declined.'); } }
   else if (a === 'clearhr') { const p = S.people.find(x => x.id === dossier); if (p && isGroup(e)) { delete p.hrnote; commit(); toast('Cleared.'); } }
   else if (a === 'openupd') { okrUpd = id; editing = null; }
-  else if (a === 'usesugg') { const el = document.getElementById('up-kr-' + i); if (el) { el.value = b.dataset.v; el.focus(); } return; }
+  else if (a === 'clearover') { const o = S.okrs.find(x => x.id === id); if (o && (o.owner === e.name || (o.owner === 'Company' && e.role === 'ceo'))) { o.statusBy = ''; o.status = autoStatus(o); commit(); toast('Back to the automatic standing.'); } }
   else if (a === 'krlog') { const key = b.dataset.o + '|' + i; krOpen = krOpen === key ? null : key; }
   else if (a === 'cancelupd') okrUpd = null;
   else if (a === 'canceledit') editing = null;
@@ -1847,14 +1859,15 @@ root.addEventListener('submit', ev => {
     const o = S.okrs.find(x => x.id === val('up-id')); if (!o) return;
     const mine = o.owner !== 'Company' ? o.owner === e.name : isGroup(e);
     if (!mine) return toast('Only the owner can update a goal.');
-    const text = val('up-text').trim(); if (!text) return toast('Add a line on what changed.');
+    const text = val('up-text').trim(), pick = val('up-st');
     let moved = 0;
     o.krs.forEach((k, i) => { const el = document.getElementById('up-kr-' + i); if (!el) return;
-      const v = parseFloat(el.value); if (!(v >= 0) || v === (+k.cur || 0)) return;
-      k.cur = v; k.curAt = Date.now(); moved++; });
-    o.status = val('up-st');
-    o.updates = [...okrUpdates(o), {text, status: o.status, by: e.name, at: Date.now()}];
-    okrUpd = null; commit(); toast(moved ? `Check-in posted, ${plural(moved, 'number', 'numbers')} updated.` : 'Check-in posted.'); return;
+      const v = parseFloat(el.value); if (!(v >= 0) || v === krCur(o, k, i)) return;
+      k.curManual = v; k.cur = v; k.curAt = Date.now(); moved++; });
+    if (pick) { o.status = pick; o.statusBy = e.name; } else { o.statusBy = ''; o.status = autoStatus(o); }
+    if (text) o.updates = [...okrUpdates(o), {text, status: okrStatus(o), by: e.name, at: Date.now()}];
+    okrUpd = null; commit();
+    toast(!text && !moved && !pick ? 'Nothing to save.' : moved ? `Saved, ${plural(moved, 'number', 'numbers')} updated.` : 'Saved.'); return;
   } else if (f === 'savetmpl') {
     if (!tdraft || !isGroup(e)) return;
     readTmpl();
