@@ -313,6 +313,9 @@ details.evid .actlog{background:var(--bg)}
 .measure .prog{gap:10px}
 .krform{display:flex;flex-direction:column;gap:6px;padding:8px 0;border-top:1px solid var(--line)}
 .krform:first-child{border-top:0;padding-top:0}
+.flagset{margin-top:6px}
+.flagset .lbl{display:block;margin-bottom:1px}
+.flagset ul.flags{margin-top:0}
 </style></head>
 <body>
 <div class="wrap" id="root"><p class="empty">Loading…</p></div>
@@ -349,7 +352,14 @@ let draft = {owner:null, obj:'', krs:['',''], ms:[null,null], kt:['binary','bina
 // ---------- identity & visibility ----------
 const realMe = () => S.people.find(x => uid && x.id === uid) || null;
 function eff() { const r = realMe(); if (!r) return null; if (viewAs && r.role === 'ceo') { const p = S.people.find(x => x.id === viewAs); if (p) return p; } return r; }
-const SUBS = ['NativeTalk', 'Connect', 'Cyber Villa'];
+const CFG0 = () => ({
+  subs: ['NativeTalk', 'Connect', 'Cyber Villa'],
+  leave: [{type: 'Annual leave', days: 25}, {type: 'Sick leave', days: 10}, {type: 'Compassionate leave', days: 5}, {type: 'Unpaid leave', days: 0}],
+  yearStart: 0, staleDays: 14, behindAt: 60, aheadAt: 110,
+  standupWeeks: 2, enpsDays: 28, reviewDueDays: 21, onbWho: ['HR', 'Manager', 'New hire']
+});
+// Live reference into the config, so every call site stays valid when it is edited in place.
+let SUBS = CFG0().subs;
 const SUB_TONE = {'NativeTalk': 'sky', 'Connect': 'tea', 'Cyber Villa': 'vio'};
 let subFilter = '';
 const isGroup = p => p.role === 'ceo' || p.role === 'hr';
@@ -390,13 +400,13 @@ const dateShort = t => new Date(t).toLocaleDateString(undefined, {day: 'numeric'
 // chases staleness. A rating comes out of a review cycle, not a formula.
 const OKRST = ['On track', 'At risk', 'Off track'];
 const OKRST_TONE = {'On track': 'good', 'At risk': 'warn', 'Off track': 'bad'};
-const STALE_DAYS = 14;
+
 const okrStatus = o => o.status || 'On track';
 const okrUpdates = o => o.updates || [];
 const lastUpd = o => { const u = okrUpdates(o); return u.length ? u[u.length - 1] : null; };
 const staleDays = o => { const u = lastUpd(o); return u ? Math.floor((Date.now() - u.at) / 86400000) : null; };
-const isStale = o => { const d = staleDays(o); return d === null || d > STALE_DAYS; };
-const krStale = k => krMeasured(k) && k.pct !== 100 && (!k.curAt || Date.now() - k.curAt > STALE_DAYS * 86400000);
+const isStale = o => { const d = staleDays(o); return d === null || d > S.cfg.staleDays; };
+const krStale = k => krMeasured(k) && k.pct !== 100 && (!k.curAt || Date.now() - k.curAt > S.cfg.staleDays * 86400000);
 const staleLabel = o => { const d = staleDays(o); return d === null ? 'never updated' : d === 0 ? 'updated today' : d === 1 ? 'updated yesterday' : 'updated ' + d + ' days ago'; };
 const krRef = x => { if (!x.okr) return null; const o = S.okrs.find(y => y.id === x.okr); const k = o && o.krs[x.kr]; return k ? {o, k} : null; };
 const krOpts = n => S.okrs.filter(o => o.owner === n).flatMap(o => o.krs.map((k, i) => ({v: o.id + '|' + i, l: k.title, g: o.objective})));
@@ -410,7 +420,8 @@ const krState = k => k.pct === 100 ? 'approved' : k.req ? 'awaiting' : 'open';
 // ---------- workforce analytics ----------
 const WEEK = 7 * 86400000;
 const pastWeeks = n => Array.from({length: n}, (_, i) => { const d = parseIso(curWeek()); d.setDate(d.getDate() - 7 * i); return iso(d); });
-const expectedPace = () => (curM() + 1) / 12 * 100;
+const goalMonth = () => ((curM() - S.cfg.yearStart + 12) % 12) + 1;
+const expectedPace = () => goalMonth() / 12 * 100;
 const standupRate = n => { const ws = pastWeeks(4); return ws.filter(w => S.stand.some(x => x.owner === n && x.week === w)).length / ws.length * 100; };
 const overdueFor = n => S.okrs.filter(o => o.owner === n).reduce((t, o) => t + o.krs.filter(k => overdue(o, k)).length, 0);
 const approvedFor = n => S.okrs.filter(o => o.owner === n).reduce((t, o) => t + o.krs.filter(k => k.pct === 100).length, 0);
@@ -438,16 +449,16 @@ function risk(n) {
   atRisk.forEach(o => said.push(`Says "${o.objective}" is at risk`));
   if (!mine.length) chase.push('No OKRs set yet');
   stale.forEach(o => chase.push(`"${o.objective}" ${staleLabel(o)}`));
-  if (sr < 50) chase.push(`Logged a standup in ${r0(sr / 25)} of the last 4 weeks`);
+  if (sr / 25 < S.cfg.standupWeeks) chase.push(`Logged a standup in ${r0(sr / 25)} of the last 4 weeks`);
   if (od) chase.push(plural(od, 'key result is', 'key results are') + ' past their due month');
   // Where a goal is measured, check what the number says against what its owner said.
   mine.filter(o => lastUpd(o) && o.krs.some(krMeasured)).forEach(o => {
     const p2 = okrPct(o), st = okrStatus(o);
-    if (st === 'On track' && p2 + 0.5 < exp * 0.6) chase.push(`Says "${o.objective}" is on track, but it is at ${r0(p2)}% against ${r0(exp)}% expected`);
-    else if (st !== 'On track' && p2 > exp * 1.1) chase.push(`Says "${o.objective}" is ${st.toLowerCase()} but it is at ${r0(p2)}%, ahead of the ${r0(exp)}% expected. Is the target right?`);
+    if (st === 'On track' && p2 + 0.5 < exp * S.cfg.behindAt / 100) chase.push(`Says "${o.objective}" is on track, but it is at ${r0(p2)}% against ${r0(exp)}% expected`);
+    else if (st !== 'On track' && p2 > exp * S.cfg.aheadAt / 100) chase.push(`Says "${o.objective}" is ${st.toLowerCase()} but it is at ${r0(p2)}%, ahead of the ${r0(exp)}% expected. Is the target right?`);
   });
   const numStale = mine.reduce((t, o) => t + o.krs.filter(krStale).length, 0);
-  if (numStale) chase.push(plural(numStale, 'measured key result has', 'measured key results have') + ' not moved in over ' + STALE_DAYS + ' days');
+  if (numStale) chase.push(plural(numStale, 'measured key result has', 'measured key results have') + ' not moved in over ' + S.cfg.staleDays + ' days');
   mine.forEach(o => o.krs.forEach((k, i) => { if (k.type !== 'count' || k.pct === 100) return;
     const lt = loggedTotal(o.id, i);
     if (lt > (+k.cur || 0)) chase.push(`Standup log adds up to ${fn(lt)} on "${k.title}" but the number says ${fn(+k.cur || 0)}`);
@@ -468,7 +479,7 @@ const ONB_PLAN = [
   ['Complete role training', 'New hire', 10], ['Agree first OKRs with your manager', 'Manager', 14],
   ['First one to one', 'Manager', 14], ['Thirty day check-in', 'HR', 30]
 ];
-const ONB_WHO = ['HR', 'Manager', 'New hire'];
+
 const tmplFor = sub => S.tmpl.find(x => x.sub === sub) || S.tmpl.find(x => !x.sub) || {tasks: ONB_PLAN.map(([t, who, off]) => ({t, who, off}))};
 const onbFor = n => S.onb.find(x => x.owner === n) || null;
 const onbPct = o => o && o.tasks.length ? o.tasks.filter(t => t.done).length / o.tasks.length * 100 : 0;
@@ -495,7 +506,7 @@ const recipients = () => S.people.slice();
 const responded = w => recipients().filter(p => welfareOf(p.name, w));
 const outstanding = w => recipients().filter(p => !welfareOf(p.name, w));
 const surveyDue = e => { const sv = surveyFor(curWeek()); return !!sv && !sv.closed && !welfareOf(e.name, curWeek()); };
-const enpsAsked = n => S.welfare.some(x => x.owner === n && x.enps != null && Date.now() - x.ts < 28 * 86400000);
+const enpsAsked = n => S.welfare.some(x => x.owner === n && x.enps != null && Date.now() - x.ts < S.cfg.enpsDays * 86400000);
 const enpsOf = n => { const w = S.welfare.filter(x => x.owner === n && x.enps != null).sort((a, b) => b.ts - a.ts); return w.length ? w[0].enps : null; };
 function enpsScore(names) {
   const v = names.map(enpsOf).filter(x => x != null); if (!v.length) return null;
@@ -508,11 +519,12 @@ const revOf = (cid, n) => S.reviews.find(r => r.cycle === cid && r.owner === n);
 const revStage = r => !r ? 'none' : r.mgr ? 'done' : r.self ? 'self' : 'none';
 const REVST = {none: ['Not started', ''], self: ['Self-review in', 'warn'], done: ['Complete', 'good']};
 const revDue = c => c ? Math.ceil((parseIso(c.due) - Date.now()) / 86400000) : 0;
-const ALLOWANCE = 25;
+
 const money = n => '\u20a6' + Number(n).toLocaleString('en-US');
 const leaveFor = n => S.leave.filter(x => x.owner === n).sort((a, b) => b.from.localeCompare(a.from));
-const leaveTaken = n => leaveFor(n).filter(x => x.status === 'Approved' && x.from.slice(0, 4) === String(curY())).reduce((t, x) => t + x.days, 0);
-const leaveBal = n => ALLOWANCE - leaveTaken(n);
+const leaveAllow = ty => (S.cfg.leave.find(x => x.type === ty) || {days: 0}).days;
+const leaveTaken = (n, ty) => leaveFor(n).filter(x => x.status === 'Approved' && x.from.slice(0, 4) === String(curY()) && (!ty || x.type === ty)).reduce((t, x) => t + x.days, 0);
+const leaveBal = (n, ty) => leaveAllow(ty || S.cfg.leave[0].type) - leaveTaken(n, ty || S.cfg.leave[0].type);
 const leavePending = e => S.leave.filter(x => x.status === 'Requested' && lbScope(e).has(x.owner) && x.owner !== e.name);
 const canSeePay = (e, p) => isGroup(e) || p.name === e.name;
 const dueReview = p => p.review && new Date(p.review) - Date.now() < 45 * 86400000;
@@ -540,7 +552,7 @@ function submitRev(o, rev, e) {
   if (e.role === 'ceo' || canApprove(e, o)) { applyRev(o, rev); toast('Saved.'); }
   else { o.rev = {...rev, by: e.name, at: Date.now()}; toast('Sent to ' + approverOf(o) + ' for approval.'); }
 }
-let editing = null, okrUpd = null, krOpen = null, krVal = null, okrTab = null, standWho = null, revWho = null, dossier = null, perfTab = 'all', day = null, dirView = 'table', openRev = null, openRole = null, hireTab = 'open', imp = null, tdraft = null;
+let editing = null, okrUpd = null, krOpen = null, ciSeg = 'week', okrTab = null, standWho = null, revWho = null, dossier = null, perfTab = 'all', day = null, dirView = 'table', openRev = null, openRole = null, hireTab = 'open', imp = null, tdraft = null;
 function pendingFor(e) {
   const out = [];
   S.okrs.forEach(o => (o.krs || []).forEach((k, i) => { if (k.req && k.pct !== 100 && canApprove(e, o) && (e.role !== 'ceo' || !subFilter || person(o.owner)?.sub === subFilter)) out.push({o, k, i}); }));
@@ -777,7 +789,7 @@ function buildMock() {
     {id: uuid(), week: weekIso(1), sentAt: Date.now() - 9 * 86400000, sentBy: 'Fay Lund', remindedAt: 0, closed: true}];
   return {people, okrs, logs, stand, wnotes, welfare, leave, cycles, reviews, roles, cands, ones, fb, docs, surveys, onb, tmpl};
 }
-function loadData() { const d = buildMock(); COLS.forEach(c => S[c] = d[c]); uid = null; }
+function loadData() { const d = buildMock(); COLS.forEach(c => S[c] = d[c]); S.cfg = CFG0(); SUBS = S.cfg.subs; uid = null; }
 const save = () => render();
 const commit = () => render();
 let tt; function toast(m) { const t = $('#toast'); t.textContent = m; t.hidden = false; clearTimeout(tt); tt = setTimeout(() => t.hidden = true, 3500); }
@@ -850,6 +862,33 @@ function buildCsv(kind, e) {
     ...S.reviews.filter(r => lbScope(e).has(r.owner)).map(r => [(S.cycles.find(x => x.id === r.cycle) || {}).name || '', r.owner, r.self?.rating ?? '', r.self?.text ?? '', r.mgr?.by ?? '', r.mgr?.rating ?? '', r.mgr?.text ?? ''])]); }
   if (kind === 'hire') return toCsv([['Role', 'Subsidiary', 'Team', 'Hiring manager', 'Role status', 'Candidate', 'Email', 'Stage', 'Added']],
     ) + '\r\n' + toCsv(openRoles(e).flatMap(r => candsFor(r).map(c => [r.title, r.sub, r.team, r.hm, r.status, c.name, c.email, c.stage, d(c.at)])));
+  return '';
+}
+// Read the settings form back into the config. Subsidiary renames follow through to people.
+function readCfg(validate) {
+  const c = S.cfg, g = id => document.getElementById(id);
+  if (!g('cf-stale')) return '';
+  c.subs.forEach((old, i) => { const el = g('cf-sub-' + i); if (!el) return; const v = el.value.trim();
+    if (v && v !== old) { S.people.forEach(p => { if (p.sub === old) p.sub = v; });
+      S.okrs.forEach(o => { if (o.sub === old) o.sub = v; });
+      S.roles.forEach(r => { if (r.sub === old) r.sub = v; });
+      S.tmpl.forEach(t => { if (t.sub === old) t.sub = v; });
+      if (subFilter === old) subFilter = v;
+      c.subs[i] = v; } });
+  c.leave = c.leave.map((x, i) => ({type: (g('cf-lt-' + i) || {}).value?.trim() || x.type, days: Math.max(0, +(g('cf-ld-' + i) || {}).value || 0)}));
+  c.onbWho = c.onbWho.map((x, i) => (g('cf-ow-' + i) || {}).value?.trim() || x);
+  const n = (id, lo, hi, cur) => { const v = Math.round(+g(id).value); return isNaN(v) ? cur : Math.min(hi, Math.max(lo, v)); };
+  c.yearStart = +g('cf-ys').value;
+  c.staleDays = n('cf-stale', 1, 365, c.staleDays);
+  c.behindAt = n('cf-behind', 1, 100, c.behindAt);
+  c.aheadAt = n('cf-ahead', 100, 500, c.aheadAt);
+  c.standupWeeks = n('cf-su', 0, 4, c.standupWeeks);
+  c.enpsDays = n('cf-enps', 7, 365, c.enpsDays);
+  c.reviewDueDays = n('cf-rev', 1, 180, c.reviewDueDays);
+  if (validate) {
+    if (new Set(c.subs.map(x => x.toLowerCase())).size !== c.subs.length) return 'Two subsidiaries share a name.';
+    if (new Set(c.leave.map(x => x.type.toLowerCase())).size !== c.leave.length) return 'Two leave types share a name.';
+  }
   return '';
 }
 function readTmpl() {
@@ -989,7 +1028,7 @@ function viewDash(e) {
   const myOnb = onbFor(e.name);
   if (myOnb && onbPct(myOnb) < 100) { const mine2 = myOnb.tasks.filter(t => t.who === 'New hire' && !t.done).length;
     if (mine2) todo.push([plural(mine2, 'onboarding task is', 'onboarding tasks are') + ' waiting for you.', tabBtn('hire', 'Open checklist', '')]); }
-  if (surveyDue(e)) todo.push(['Your weekly check-in is waiting.', tabBtn('welf', 'Fill it in', '')]);
+  if (surveyDue(e)) todo.push(['Your weekly check-in is waiting.', tabBtn('ci', 'Fill it in', '')]);
   if (fridayDue(e)) todo.push(['Add your Friday comments on blockers and wins.', tabBtn('review', 'Open review', '')]);
   if (!hr && !mine.length) todo.push(['No standup entries for this week.', tabBtn('stand', 'Add activity')]);
   if (!hr && !myOkrs.length) todo.push(e.role === 'member' ? ['You have no OKRs yet. Your line manager sets them.', ''] : ['You have no OKRs yet.', tabBtn('okrs', 'Add OKR')]);
@@ -1068,11 +1107,18 @@ function okrCard(o, e) {
   const editUi = !canEdit ? '' : o.rev ? `<span class="acts">${chip('Change awaiting approval', 'warn')}${o.rev.by === e.name ? `<button class="btn quiet sm" data-act="cancelrev" data-id="${o.id}">Cancel change</button>` : ''}</span>` : `<button class="btn quiet sm" data-act="editokr" data-id="${o.id}">Edit</button>`;
   const mine = o.owner !== 'Company' ? o.owner === e.name : isGroup(e);
   const st = okrStatus(o), lu = lastUpd(o), stale = isStale(o);
-  const upd = okrUpd === o.id ? `<form class="ci-form" data-submit="saveupd" style="flex-wrap:wrap"><input type="hidden" id="up-id" value="${o.id}">
-    <label class="f" style="flex:none">Where does it stand?<select id="up-st">${OKRST.map(x => `<option${st === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select></label>
-    <label class="f grow" style="flex-basis:260px">What changed?<input type="text" id="up-text" placeholder="One line on progress, blockers or what happens next"></label>
-    <button class="btn" type="submit">Post update</button><button type="button" class="btn quiet" data-act="cancelupd">Cancel</button></form>` : '';
-  return `<article class="card"><div class="okr-h"><div class="grow"><h3>${esc(o.objective)}</h3><div class="sub">${esc(ownerLabel(o))} · ${esc(o.year)} · ${plural(n, 'key result', 'key results')}</div></div><span class="acts">${chip(st, OKRST_TONE[st])}${stale ? chip(staleLabel(o), 'bad') : `<span class="sub">${esc(staleLabel(o))}</span>`}${mine && !upd ? `<button class="btn ${stale ? '' : 'quiet'} sm" data-act="openupd" data-id="${o.id}">Update</button>` : ''}${editUi}${delUi}</span></div>
+  const measKrs = o.krs.map((k, i) => ({k, i})).filter(x => krMeasured(x.k) && x.k.pct !== 100);
+  const upd = okrUpd === o.id ? `<form class="ci-form" data-submit="saveupd" style="flex-direction:column;align-items:stretch;gap:10px"><input type="hidden" id="up-id" value="${o.id}">
+    <div class="row"><label class="f" style="flex:none">Where does it stand?<select id="up-st">${OKRST.map(x => `<option${st === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select></label>
+      <label class="f grow" style="flex-basis:260px">What changed?<input type="text" id="up-text" placeholder="One line on progress, blockers or what happens next"></label></div>
+    ${measKrs.length ? `<div style="display:flex;flex-direction:column;gap:6px"><span class="lbl">Where the numbers are now</span>
+      ${measKrs.map(({k, i}) => { const sg = k.type === 'count' ? loggedTotal(o.id, i) : 0;
+        return `<div class="row" style="flex-wrap:nowrap"><span class="grow" style="min-width:0">${esc(k.title)}</span>
+          <input type="number" min="0" step="any" id="up-kr-${i}" value="${esc(String(k.cur ?? 0))}" aria-label="Current value for ${esc(k.title)}" style="width:120px">
+          <span class="sub num" style="white-space:nowrap">of ${fn(k.target)}${k.unit ? ' ' + esc(k.unit) : ''}</span>
+          ${sg > (+k.cur || 0) ? `<button type="button" class="btn quiet sm" data-act="usesugg" data-o="${o.id}" data-i="${i}" data-v="${sg}">Standups say ${fn(sg)}</button>` : ''}</div>`; }).join('')}</div>` : ''}
+    <div class="row"><button class="btn" type="submit">Post check-in</button><button type="button" class="btn quiet" data-act="cancelupd">Cancel</button></div></form>` : '';
+  return `<article class="card"><div class="okr-h"><div class="grow"><h3>${esc(o.objective)}</h3><div class="sub">${esc(ownerLabel(o))} · ${esc(o.year)} · ${plural(n, 'key result', 'key results')}</div></div><span class="acts">${chip(st, OKRST_TONE[st])}${stale ? chip(staleLabel(o), 'bad') : `<span class="sub">${esc(staleLabel(o))}</span>`}${mine && !upd ? `<button class="btn ${stale ? '' : 'quiet'} sm" data-act="openupd" data-id="${o.id}">Check in</button>` : ''}${editUi}${delUi}</span></div>
     ${upd}
     ${lu ? `<div class="sub">${esc(lu.by)}: ${esc(lu.text)}</div>` : ''}
     <div class="prog">${bar(p)}<span class="pc">${r0(p)}%</span></div>
@@ -1091,15 +1137,10 @@ function okrCard(o, e) {
       const acts = activityOn(o.id, i), openK = krOpen === o.id + '|' + i;
       const actBtn = acts.length ? `<button class="linkish" data-act="krlog" data-o="${o.id}" data-i="${i}" aria-expanded="${openK}">${plural(acts.length, 'activity', 'activities')} logged${acts.filter(x => x.status === 'Done').length ? ', ' + acts.filter(x => x.status === 'Done').length + ' done' : ''}</button>` : '<span>nothing logged against this yet</span>';
       const meas = krMeasured(k), frac = krFrac(k), sugg = k.type === 'count' ? loggedTotal(o.id, i) : 0;
-      const openV = krVal === o.id + '|' + i;
       const valUi = !meas ? '' : `<div class="measure">
         <div class="prog">${bar(frac * 100, frac >= 1 ? 'good' : '')}<span class="pc">${r0(frac * 100)}%</span></div>
         <div class="row" style="gap:8px"><span class="sub num">${esc(krMeasure(k))}</span>${krStale(k) ? chip(k.curAt ? 'number ' + Math.floor((Date.now() - k.curAt) / 86400000) + ' days old' : 'never set', 'warn') : ''}
-          ${canKr && k.pct !== 100 ? (openV ? '' : `<button class="linkish" data-act="krval" data-o="${o.id}" data-i="${i}">Update the number</button>`) : ''}
-          ${canKr && k.pct !== 100 && k.type === 'count' && sugg > (+k.cur || 0) ? `<button class="btn quiet sm" data-act="krsugg" data-o="${o.id}" data-i="${i}" data-v="${sugg}" title="Set the value from what has been logged">Standups add up to ${fn(sugg)} · use it</button>` : ''}</div>
-        ${openV ? `<form class="row ci-form" data-submit="savekrval"><input type="hidden" id="kv-o" value="${o.id}"><input type="hidden" id="kv-i" value="${i}">
-          <label class="f">Where is it now?${k.unit ? ` <span class="sub">(${esc(k.unit)})</span>` : ''}<input type="number" min="0" step="any" id="kv-n" value="${esc(String(k.cur ?? ''))}"></label>
-          <button class="btn" type="submit">Save</button><button type="button" class="btn quiet" data-act="cancelkrval">Cancel</button></form>` : ''}</div>`;
+          ${canKr && k.pct !== 100 && sugg > (+k.cur || 0) ? `<span class="sub">standups say ${fn(sugg)}</span>` : ''}</div></div>`;
       return `<div class="krwrap"><div class="kr"><div class="t">${esc(k.title)}<div class="sub num">${fmt(wt)}% of this OKR · ${actBtn}</div></div><div class="acts">${due}${status}${mv}${act}</div></div>${valUi}${openK ? actList(acts) : ''}</div>`;
     }).join('')}</div></article>`;
 }
@@ -1266,7 +1307,7 @@ function viewHire(e) {
       <div style="display:flex;flex-direction:column;gap:6px"><span class="lbl">Tasks</span>
         ${tdraft.tasks.map((t, i) => `<div class="row" style="flex-wrap:nowrap">
           <input type="text" class="grow" id="tt-${i}" value="${esc(t.t)}" placeholder="What needs doing" aria-label="Task ${i + 1}">
-          <select id="to-${i}" aria-label="Who does it">${ONB_WHO.map(x => `<option${t.who === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>
+          <select id="to-${i}" aria-label="Who does it">${S.cfg.onbWho.map(x => `<option${t.who === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>
           <label class="f" style="flex:none"><input type="number" id="td-${i}" value="${t.off}" aria-label="Days from start" style="width:84px"></label>
           <button type="button" class="btn quiet sm" data-act="rmtask" data-i="${i}" aria-label="Remove task ${i + 1}">Remove</button></div>`).join('')}
         <div class="row"><button type="button" class="btn ghost sm" data-act="addtask">+ Add task</button><span class="sub">Days are counted from the start date. Use a negative number for before day one.</span></div></div>
@@ -1301,8 +1342,7 @@ function viewHire(e) {
 
 function viewRev(e) {
   const c = liveCycle(), f = ff.rev, q = f.q.trim().toLowerCase();
-  if (!c) return `${pageHead('Reviews', 'Formal review cycles. Everyone writes a self-review, then their manager responds.')}
-    <div class="card">${empty('No review cycle is open.', isGroup(e) ? '<button class="btn" data-act="opencycle">Open a cycle</button>' : '')}</div>`;
+  if (!c) return `<div class="card">${empty('No review cycle is open.', isGroup(e) ? '<button class="btn" data-act="opencycle">Open a cycle</button>' : '')}</div>`;
   const mine = revOf(c.id, e.name), days = revDue(c);
   const team = [...lbScope(e)].map(n => person(n)).filter(p => p && !isGroup(p) && p.name !== e.name && (isGroup(e) || reportsTo(p, e)))
     .map(p => ({p, r: revOf(c.id, p.name)})).filter(x => (!f.team || x.p.team === f.team) && (!f.v || revStage(x.r) === f.v) && (!q || x.p.name.toLowerCase().includes(q)))
@@ -1318,7 +1358,7 @@ function viewRev(e) {
       : `<form data-submit="saveself" style="display:flex;flex-direction:column;gap:12px">
       <label class="f">How did the half go?<textarea id="rv-self" placeholder="What you delivered, what slipped and why, what you need next half."></textarea></label>
       <div class="row">${scale('rv-selfr', 3)}<button class="btn" type="submit">Send self-review</button></div></form>`}</section>`;
-  return `${pageHead('Reviews', `${c.name}. Everyone writes a self-review, then their manager responds.`, `<div class="row">${isGroup(e) ? `<button class="btn quiet" data-act="closecycle">Close cycle</button>` : ''}${expBtn('rev')}</div>`)}
+  return `<div class="row between"><p class="sub" style="margin:0">${esc(c.name)}. Everyone writes a self-review, then their manager responds.</p><div class="row">${isGroup(e) ? `<button class="btn quiet sm" data-act="closecycle">Close cycle</button>` : ''}${expBtn('rev')}</div></div>
   <div class="banner${days < 7 ? '' : ' info'}"><span>${days > 0 ? `${plural(days, 'day', 'days')} until self-reviews are due on ${esc(new Date(c.due).toLocaleDateString(undefined, {day: 'numeric', month: 'long'}))}.` : 'Self-reviews were due on ' + esc(new Date(c.due).toLocaleDateString(undefined, {day: 'numeric', month: 'long'})) + '.'}</span></div>
   ${selfCard}
   ${allMine.length ? `<section class="card"><div class="sec-h"><h2>${isGroup(e) ? 'Everyone' : 'Your team'}</h2><span class="sub">${doneN} of ${allMine.length} complete</span></div>
@@ -1345,19 +1385,19 @@ function viewPerf(e) {
   return `${pageHead('Performance signals', 'What each person says about their own goals, and where nobody has said anything lately. Only managers, HR and the CEO see this. Ratings come from the review cycle, not from this page.', expBtn('perf'))}
   <div class="stats">
     ${stat('ros', 'Flagged by their owner', counts.off + counts.risk, counts.off + counts.risk ? 'People who say a goal is at risk or off track' : 'Nobody has raised a flag', null, 'perf')}
-    ${stat('amb', 'Nothing heard', staleN, `Goals with no update in over ${STALE_DAYS} days`, null, 'perf')}
+    ${stat('amb', 'Nothing heard', staleN, `Goals with no update in over ${S.cfg.staleDays} days`, null, 'perf')}
     ${stat('tea', 'On track', counts.ok, 'Current and no flags raised', null, 'perf')}
-    ${stat('vio', 'Ahead of plan', all.filter(r => r.ix >= 110).length, `Past the ${r0(expectedPace())}% expected in month ${curM() + 1}`, null, 'perf')}</div>
+    ${stat('vio', 'Ahead of plan', all.filter(r => r.ix >= S.cfg.aheadAt).length, `Past the ${r0(expectedPace())}% expected by month ${goalMonth()} of 12`, null, 'perf')}</div>
   ${noOkrs.length ? `<div class="banner"><span>${plural(noOkrs.length, 'person has', 'people have')} no OKRs set: ${esc(noOkrs.map(r => r.n).join(', '))}. That is their manager's to fix, not a performance flag.</span></div>` : ''}
   <div class="seg" role="tablist" aria-label="Performance band">${segs.map(([v, l, c]) => `<button role="tab" aria-selected="${perfTab === v}" data-act="perftab" data-v="${v}">${l}<span class="seg-n">${c}</span></button>`).join('')}</div>
   ${all.length > 1 ? fbar('perf', {ph: 'Search by name or job title', team: teamsIn(all.map(r => r.n)), count: `Showing ${rows.length} of ${all.length}`}) : ''}
   <div class="card">${rows.length ? `<div class="list">${rows.map(r => `<div class="prow">
-    <div class="person-h grow">${avatar(r.n)}<div style="min-width:0"><div><b>${dosLink(e, r.p)}</b> ${chip(BAND[r.band][0], BAND[r.band][1])}${r.ix >= 110 ? chip('Ahead of plan', 'vio') : ''}${r.band === 'ok' && r.ix >= 110 && dueReview(r.p) ? chip('Review due', 'acc') : ''}</div>
+    <div class="person-h grow">${avatar(r.n)}<div style="min-width:0"><div><b>${dosLink(e, r.p)}</b> ${chip(BAND[r.band][0], BAND[r.band][1])}${r.ix >= S.cfg.aheadAt ? chip('Ahead of plan', 'vio') : ''}${r.band === 'ok' && r.ix >= S.cfg.aheadAt && dueReview(r.p) ? chip('Review due', 'acc') : ''}</div>
       <div class="sub">${esc(r.p.title || ROLES[r.p.role])} · ${esc(where(r.p))}</div>
-      ${r.said.length ? `<ul class="flags said">${r.said.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
-      ${r.chase.length ? `<ul class="flags">${r.chase.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+      ${r.said.length ? `<div class="flagset"><span class="lbl">They raised</span><ul class="flags said">${r.said.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
+      ${r.chase.length ? `<div class="flagset"><span class="lbl">Needs chasing</span><ul class="flags">${r.chase.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
       ${!r.said.length && !r.chase.length ? '<div class="sub">Goals current, nothing raised.</div>' : ''}</div></div>
-    <div class="pcol"><div class="sub">Delivering <b>${r0(r.ix)}%</b> of what is expected by now</div><div class="prog">${bar(r.pct, r.pct >= r.exp ? 'good' : r.pct < r.exp * 0.6 ? 'bad' : 'warm')}<span class="pc">${r0(r.pct)}%</span></div>
+    <div class="pcol"><div class="sub">Delivering <b>${r0(r.ix)}%</b> of what is expected by now</div><div class="prog">${bar(r.pct, r.pct >= r.exp ? 'good' : r.pct < r.exp * S.cfg.behindAt / 100 ? 'bad' : 'warm')}<span class="pc">${r0(r.pct)}%</span></div>
       <div class="sub">Standups ${r0(r.sr)}% · ${r.rating ? 'last review ' + r.rating.rating + '/5' : 'no review yet'}</div></div></div>`).join('')}</div>`
     : empty(all.length ? 'Nobody matches these filters.' : 'No people to rank yet.')}</div>`;
 }
@@ -1381,13 +1421,9 @@ function viewWelf(e) {
       <p class="sub" style="margin:0">${gotIt.length} of ${recipients().length} have replied.${miss.length ? ' Waiting on ' + esc(miss.map(p => p.name).join(', ')) + '.' : ' Everyone has replied.'}</p>
       <div class="row">${miss.length && !sv.closed ? `<button class="btn ghost sm" data-act="remindsurvey">Send a reminder</button>` : ''}
         ${sv.closed ? `<button class="btn quiet sm" data-act="reopensurvey">Reopen</button>` : `<button class="btn quiet sm" data-act="closesurvey">Close it</button>`}</div>`}</section>` : '';
-  return `${pageHead('Welfare and leave', 'A weekly check-in survey on workload and wellbeing, plus time off. Managers and HR see their own people.', `<div class="row">${weekNav()}${expBtn('welf')}${expBtn('leave')}</div>`)}
+  return `<div class="row between"><p class="sub" style="margin:0">A weekly check-in on workload and wellbeing. Managers and HR see their own people.</p><div class="row">${weekNav()}${expBtn('welf')}</div></div>
   ${svCard}
   ${(!sv || sv.closed) ? `<div class="card">${empty(sv ? 'This week\'s check-in is closed.' : 'No check-in has been sent for this week yet.')}</div>` : ''}
-  ${pend.length ? `<section class="card"><div class="sec-h"><h2>Leave to approve</h2>${chip(plural(pend.length, 'request', 'requests'), 'warn')}</div>
-    <div class="list">${pend.map(l => `<div class="kr"><div class="person-h t">${avatar(l.owner)}<div style="min-width:0"><div><b>${esc(l.owner)}</b> <span class="sub">${esc(l.type)}</span></div>
-      <div class="sub">${esc(new Date(l.from).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}))} to ${esc(new Date(l.to).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}))} · ${plural(l.days, 'day', 'days')} · ${leaveBal(l.owner)} days left this year</div></div></div>
-    <div class="acts"><button class="btn sm" data-act="apleave" data-id="${l.id}">Approve</button><button class="btn ghost sm" data-act="rejleave" data-id="${l.id}">Decline</button></div></div>`).join('')}</div></section>` : ''}
   ${own ? `<form class="card" data-submit="savewelf"><div class="sec-h"><h2 style="font-size:16px">${mine ? 'Your check-in this week' : 'How is this week going?'}</h2>${mine ? chip('Sent ' + dateShort(mine.ts), 'good') : ''}</div>
     <p class="sub" style="margin:0">Two questions, once a week. ${esc(approverOf({owner: e.name}))} and HR can read your answers.</p>
     <div class="row" style="align-items:flex-end">${scale('wf-load', 'How heavy was your workload?', WLOAD, mine?.workload || 3)}${scale('wf-mood', 'How are you doing?', MOOD, mine?.mood || 4)}</div>
@@ -1395,23 +1431,44 @@ function viewWelf(e) {
     ${!enpsAsked(e.name) || mine?.enps != null ? `<div class="askonce"><label class="f" for="wf-enps">How likely are you to recommend working here, to someone looking for a job?</label>
       <div class="row"><span class="sub">Not at all likely</span><select id="wf-enps"><option value="">Rather not say</option>${Array.from({length: 11}, (_, i) => `<option value="${i}"${mine?.enps === i ? ' selected' : ''}>${i}</option>`).join('')}</select><span class="sub">Extremely likely</span>
       <span class="sub">· asked once a month</span></div></div>` : '<input type="hidden" id="wf-enps" value="">'}
-    <div class="row"><button class="btn" type="submit">${mine ? 'Update check-in' : 'Send check-in'}</button></div></form>
-  <section class="card"><div class="sec-h"><h2>Your leave</h2><span class="sub">${leaveBal(e.name)} of ${ALLOWANCE} days left</span></div>
-    <form class="row" data-submit="addleave" style="align-items:flex-end"><label class="f">From<input type="date" id="lv-from"></label><label class="f">To<input type="date" id="lv-to"></label>
-      <label class="f">Type<select id="lv-type"><option>Annual leave</option><option>Sick leave</option><option>Unpaid leave</option><option>Compassionate leave</option></select></label>
-      <button class="btn" type="submit">Request</button></form>
-    <div class="list">${myLeave.length ? myLeave.slice(0, 4).map(l => `<div class="kr"><div class="t">${esc(l.type)}<div class="sub">${esc(new Date(l.from).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}))} to ${esc(new Date(l.to).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}))} · ${plural(l.days, 'day', 'days')}</div></div>
-      <div class="acts">${chip(l.status, l.status === 'Approved' ? 'good' : l.status === 'Requested' ? 'warn' : '')}${l.status === 'Requested' ? `<button class="btn quiet sm" data-act="delleave" data-id="${l.id}">Withdraw</button>` : ''}</div></div>`).join('') : '<div class="sub">No leave booked this year.</div>'}</div></section>` : ''}
-  ${team ? `<div class="stats">${stat('ros', 'Needs attention', need, need ? 'Heavy workload or a low score' : 'Nobody flagged this week', null, 'welf')}
-    ${stat('tea', 'Checked in', rows.filter(r => r.w).length + '/' + rows.length, 'People who answered this week', null, 'welf')}
-    ${stat('ind', 'Average workload', avg == null ? '—' : fmt(avg) + '/5', avg == null ? 'No check-ins yet' : WLOAD[Math.round(avg)], null, 'welf')}
-    ${(x => stat('vio', 'eNPS', x ? (x.score > 0 ? '+' : '') + x.score : '—', x ? `${x.pro} promoters, ${x.det} detractors of ${x.n}` : 'Nobody has answered yet', null, 'welf'))(enpsScore(names))}</div>
+    <div class="row"><button class="btn" type="submit">${mine ? 'Update check-in' : 'Send check-in'}</button></div></form>` : ''}
+  ${team ? `<div class="stats">${stat('ros', 'Needs attention', need, need ? 'Heavy workload or a low score' : 'Nobody flagged this week', null, 'ci')}
+    ${stat('tea', 'Checked in', rows.filter(r => r.w).length + '/' + rows.length, 'People who answered this week', null, 'ci')}
+    ${stat('ind', 'Average workload', avg == null ? '—' : fmt(avg) + '/5', avg == null ? 'No check-ins yet' : WLOAD[Math.round(avg)], null, 'ci')}
+    ${(x => stat('vio', 'eNPS', x ? (x.score > 0 ? '+' : '') + x.score : '—', x ? `${x.pro} promoters, ${x.det} detractors of ${x.n}` : 'Nobody has answered yet', null, 'ci'))(enpsScore(names))}</div>
   ${rows.length > 1 ? fbar('welf', {ph: 'Search by name', team: teamsIn(names), count: `Showing ${rows.length} people`}) : ''}
   <div class="card">${rows.length ? `<div class="list">${rows.map(r => `<div class="kr"><div class="person-h t">${avatar(r.n)}<div style="min-width:0"><div><b>${dosLink(e, r.p)}</b></div>
     <div class="sub">${r.w ? esc(WLOAD[r.w.workload] + ' workload · feeling ' + MOOD[r.w.mood].toLowerCase()) : 'No check-in this week'}</div>
     ${r.w && r.w.note ? `<div>${esc(r.w.note)}</div>` : ''}${r.flag ? `<div class="sub"><b>${esc(r.flag)}</b></div>` : ''}</div></div>
     <div class="acts">${r.w ? chip(r.w.workload + '/5 workload', r.w.workload >= 4 ? 'warn' : '') : chip('No check-in')}${r.flag ? chip('Needs attention', 'bad') : ''}</div></div>`).join('')}</div>`
     : empty('Nobody to show yet.')}</div>` : ''}`;
+}
+
+function viewLeave(e) {
+  const pend = (isGroup(e) || e.role === 'manager') ? leavePending(e) : [];
+  const myLeave = leaveFor(e.name);
+  return `<div class="row between"><p class="sub" style="margin:0">Time off, and the requests waiting on you.</p>${expBtn('leave')}</div>
+  ${pend.length ? `<section class="card"><div class="sec-h"><h2>Leave to approve</h2>${chip(plural(pend.length, 'request', 'requests'), 'warn')}</div>
+    <div class="list">${pend.map(l => `<div class="kr"><div class="person-h t">${avatar(l.owner)}<div style="min-width:0"><div><b>${esc(l.owner)}</b> <span class="sub">${esc(l.type)}</span></div>
+      <div class="sub">${esc(new Date(l.from).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}))} to ${esc(new Date(l.to).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}))} · ${plural(l.days, 'day', 'days')} · ${leaveBal(l.owner, l.type)} days of ${esc(l.type).toLowerCase()} left</div></div></div>
+    <div class="acts"><button class="btn sm" data-act="apleave" data-id="${l.id}">Approve</button><button class="btn ghost sm" data-act="rejleave" data-id="${l.id}">Decline</button></div></div>`).join('')}</div></section>` : ''}
+  <section class="card"><div class="sec-h"><h2>Your leave</h2><span class="sub">${S.cfg.leave.map(x => leaveBal(e.name, x.type) + ' ' + x.type.toLowerCase()).join(' · ')} left</span></div>
+    <form class="row" data-submit="addleave" style="align-items:flex-end"><label class="f">From<input type="date" id="lv-from"></label><label class="f">To<input type="date" id="lv-to"></label>
+      <label class="f">Type<select id="lv-type">${S.cfg.leave.map(x => `<option>${esc(x.type)}</option>`).join('')}</select></label>
+      <button class="btn" type="submit">Request</button></form>
+    <div class="list">${myLeave.length ? myLeave.slice(0, 4).map(l => `<div class="kr"><div class="t">${esc(l.type)}<div class="sub">${esc(new Date(l.from).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}))} to ${esc(new Date(l.to).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}))} · ${plural(l.days, 'day', 'days')}</div></div>
+      <div class="acts">${chip(l.status, l.status === 'Approved' ? 'good' : l.status === 'Requested' ? 'warn' : '')}${l.status === 'Requested' ? `<button class="btn quiet sm" data-act="delleave" data-id="${l.id}">Withdraw</button>` : ''}</div></div>`).join('') : '<div class="sub">No leave booked this year.</div>'}</div></section>`;
+}
+
+function viewCheck(e) {
+  const pendN = (isGroup(e) || e.role === 'manager') ? leavePending(e).length : 0;
+  const c = liveCycle(), mineRev = c ? revOf(c.id, e.name) : null;
+  const revDue = c && !c.closed && e.role !== 'hr' && !(mineRev && mineRev.self) ? 1 : 0;
+  const segs = [['week', 'This week', surveyDue(e) ? 1 : 0], ['rev', 'Review cycle', revDue], ['leave', 'Leave', pendN]];
+  const body = ciSeg === 'rev' ? viewRev(e) : ciSeg === 'leave' ? viewLeave(e) : viewWelf(e);
+  return `${pageHead('Check-ins', 'The weekly pulse, the formal review cycle and time off, in one place.')}
+  <div class="seg" role="tablist" aria-label="Which check-in">${segs.map(([v, l, n]) => `<button role="tab" aria-selected="${ciSeg === v}" data-act="ciseg" data-v="${v}">${l}${n ? `<span class="seg-n">${n}</span>` : ''}</button>`).join('')}</div>
+  ${body}`;
 }
 
 function viewDossier(e) {
@@ -1447,8 +1504,8 @@ function viewDossier(e) {
       <div class="list">${done.length ? done.slice(0, 8).map(({o, k}) => `<div class="kr"><div class="t">${esc(k.title)}<div class="sub">${esc(o.objective)}</div></div><div class="acts">${chip('Approved by ' + (k.apBy || '—') + ' · ' + dateShort(k.apAt), 'good')}</div></div>`).join('') : '<div class="sub">Nothing approved yet.</div>'}</div></section>
   </div><div class="stack">
     <section class="card"><div class="sec-h"><h2>Standing</h2></div>
-      ${r ? `${r.said.length ? `<ul class="flags said">${r.said.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
-        ${r.chase.length ? `<ul class="flags">${r.chase.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+      ${r ? `${r.said.length ? `<div class="flagset"><span class="lbl">They raised</span><ul class="flags said">${r.said.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
+        ${r.chase.length ? `<div class="flagset"><span class="lbl">Needs chasing</span><ul class="flags">${r.chase.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
         ${!r.said.length && !r.chase.length ? '<p class="sub">Goals current, nothing raised.</p>' : ''}
         <p class="sub">${r.rating ? 'Last review: ' + r.rating.rating + '/5 by ' + esc(r.rating.by) + ' in ' + esc(r.rating.cycle) + '.' : 'No completed review yet.'}</p>` : '<p class="sub">Group-level roles are not ranked.</p>'}</section>
     ${(o => !o ? (hr ? `<section class="card"><div class="sec-h"><h2>Onboarding</h2></div><p class="sub" style="margin:0">No checklist for ${esc(p.name)}.</p>
@@ -1478,11 +1535,11 @@ function viewDossier(e) {
       <div class="list">
         <div class="kr"><div class="t">Contract<div class="sub">${esc(p.contract || 'Not recorded')}${p.notice ? ' · ' + esc(p.notice) + ' notice' : ''}</div></div></div>
         <div class="kr"><div class="t">Started<div class="sub">${esc(p.joined ? new Date(p.joined).toLocaleDateString(undefined, {day: 'numeric', month: 'long', year: 'numeric'}) : 'Not recorded')}</div></div></div>
-        <div class="kr"><div class="t">Next review<div class="sub">${esc(p.review ? new Date(p.review).toLocaleDateString(undefined, {day: 'numeric', month: 'long', year: 'numeric'}) : 'Not scheduled')}</div></div>${r && r.ix >= 110 ? chip('Delivering ' + r0(r.ix) + '%', 'vio') : ''}</div>
+        <div class="kr"><div class="t">Next review<div class="sub">${esc(p.review ? new Date(p.review).toLocaleDateString(undefined, {day: 'numeric', month: 'long', year: 'numeric'}) : 'Not scheduled')}</div></div>${r && r.ix >= S.cfg.aheadAt ? chip('Delivering ' + r0(r.ix) + '%', 'vio') : ''}</div>
         ${canSeePay(e, p) ? `<div class="kr"><div class="t">Salary<div class="sub">${esc(p.salary ? money(p.salary) + ' a year' : 'Not recorded')}</div></div></div>`
           : '<div class="kr"><div class="t">Salary<div class="sub">Visible to HR and the CEO only</div></div></div>'}
       </div></section>
-    <section class="card"><div class="sec-h"><h2>Leave</h2><span class="sub">${leaveBal(p.name)} of ${ALLOWANCE} days left</span></div>
+    <section class="card"><div class="sec-h"><h2>Leave</h2><span class="sub">${leaveBal(p.name)} of ${leaveAllow(S.cfg.leave[0].type)} days of ${esc(S.cfg.leave[0].type).toLowerCase()} left</span></div>
       <div class="list">${leaveFor(p.name).length ? leaveFor(p.name).slice(0, 5).map(l => `<div class="kr"><div class="t">${esc(l.type)}<div class="sub">${esc(new Date(l.from).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}))} to ${esc(new Date(l.to).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}))} · ${plural(l.days, 'day', 'days')}${l.apBy ? ' · approved by ' + esc(l.apBy) : ''}</div></div>${chip(l.status, l.status === 'Approved' ? 'good' : l.status === 'Requested' ? 'warn' : '')}</div>`).join('') : '<div class="sub">No leave recorded this year.</div>'}</div></section>
     <section class="card"><div class="sec-h"><h2>Welfare</h2></div>
       ${welfareFlag(p.name) ? `<div class="banner info"><span>${esc(welfareFlag(p.name))}</span></div>` : ''}
@@ -1503,6 +1560,43 @@ function orgNode(p, e, depth) {
     <div class="sub">${esc(p.title || '')}${p.sub ? ' · ' + esc(where(p)) : ''}${kids.length ? ' · ' + plural(kids.length, 'direct report', 'direct reports') : ''}</div></div></div></div>
     ${kids.length ? `<ul>${kids.map(k => orgNode(k, e, depth + 1)).join('')}</ul>` : ''}</li>`;
 }
+function viewSet(e) {
+  const c = S.cfg;
+  const num = (id, label, v, hint) => `<label class="f"><span>${label}</span><input type="number" min="0" step="1" id="${id}" value="${esc(String(v))}">${hint ? `<span class="sub">${esc(hint)}</span>` : ''}</label>`;
+  return `${pageHead('Settings', 'The policy numbers behind the rest of the app. Only the CEO and HR can change these.')}
+  <section class="card"><div class="sec-h"><h2>Subsidiaries</h2><span class="sub">${plural(c.subs.length, 'subsidiary', 'subsidiaries')}</span></div>
+    <div class="list">${c.subs.map((x, i) => `<div class="kr"><div class="t"><input type="text" id="cf-sub-${i}" value="${esc(x)}" aria-label="Subsidiary ${i + 1}"></div>
+      <div class="acts"><span class="sub">${plural(S.people.filter(p => p.sub === x).length, 'person', 'people')}</span>
+        ${S.people.some(p => p.sub === x) ? '<span class="sub">in use</span>' : `<button class="btn quiet sm" data-act="rmsub" data-i="${i}">Remove</button>`}</div></div>`).join('')}</div>
+    <div class="row"><button class="btn ghost sm" data-act="addsub">+ Add subsidiary</button><span class="sub">Renaming one moves everyone on it. A subsidiary in use cannot be removed.</span></div></section>
+
+  <section class="card"><div class="sec-h"><h2>Goal year and chasing</h2></div>
+    <div class="row" style="align-items:flex-start">
+      <label class="f"><span>The goal year starts in</span><select id="cf-ys">${MONFULL.map((m, i) => `<option value="${i}"${c.yearStart === i ? ' selected' : ''}>${esc(m)}</option>`).join('')}</select><span class="sub">Sets what "expected by now" means</span></label>
+      ${num('cf-stale', 'Chase a goal with no update after', c.staleDays, 'days')}
+      ${num('cf-behind', 'Flag a goal claimed on track below', c.behindAt, '% of expected pace')}
+      ${num('cf-ahead', 'Count someone ahead of plan above', c.aheadAt, '% of expected pace')}</div></section>
+
+  <section class="card"><div class="sec-h"><h2>Rhythm</h2></div>
+    <div class="row" style="align-items:flex-start">
+      ${num('cf-su', 'Expect a standup in at least', c.standupWeeks, 'of the last 4 weeks')}
+      ${num('cf-enps', 'Ask the recommend question every', c.enpsDays, 'days')}
+      ${num('cf-rev', 'Self-reviews are due after', c.reviewDueDays, 'days when a cycle opens')}</div></section>
+
+  <section class="card"><div class="sec-h"><h2>Leave</h2></div>
+    <div class="list">${c.leave.map((x, i) => `<div class="kr"><div class="t"><input type="text" id="cf-lt-${i}" value="${esc(x.type)}" aria-label="Leave type ${i + 1}"></div>
+      <div class="acts"><input type="number" min="0" id="cf-ld-${i}" value="${x.days}" aria-label="Days for ${esc(x.type)}" style="width:92px"><span class="sub">days a year</span>
+        ${S.leave.some(l => l.type === x.type) || c.leave.length < 2 ? '<span class="sub">in use</span>' : `<button class="btn quiet sm" data-act="rmlv" data-i="${i}">Remove</button>`}</div></div>`).join('')}</div>
+    <div class="row"><button class="btn ghost sm" data-act="addlv">+ Add leave type</button><span class="sub">The first type is the one shown as the headline balance.</span></div></section>
+
+  <section class="card"><div class="sec-h"><h2>Onboarding task owners</h2></div>
+    <div class="list">${c.onbWho.map((x, i) => `<div class="kr"><div class="t"><input type="text" id="cf-ow-${i}" value="${esc(x)}" aria-label="Owner ${i + 1}"></div>
+      <div class="acts">${c.onbWho.length > 1 && !S.tmpl.some(t => t.tasks.some(k => k.who === x)) ? `<button class="btn quiet sm" data-act="rmow" data-i="${i}">Remove</button>` : '<span class="sub">in use</span>'}</div></div>`).join('')}</div>
+    <div class="row"><button class="btn ghost sm" data-act="addow">+ Add owner</button><span class="sub">Who a checklist task can be assigned to. "New hire" means the starter themselves.</span></div></section>
+
+  <div class="row"><button class="btn" data-act="savecfg">Save settings</button><button class="btn quiet" data-act="resetcfg">Reset to defaults</button></div>`;
+}
+
 function viewPeople(e) {
   const ceo = e.role === 'ceo' || e.role === 'hr';
   const inSub = S.people.filter(p => !subFilter || !p.sub || p.sub === subFilter);
@@ -1562,7 +1656,7 @@ function render() {
   const keep = [...root.querySelectorAll('input[id]:not([type=file]),textarea[id],select[id]')].map(el => ({id: el.id, v: el.value}));
   const ae = document.activeElement, focus = ae && ae.id && root.contains(ae) ? {id: ae.id, s: ae.selectionStart, e: ae.selectionEnd} : null;
   root.innerHTML = build();
-  keep.forEach(k => { const el = document.getElementById(k.id); if (el && el.value !== k.v && !/^(ok-owner|subsel|pf-sub|pf-team|pf-role|ff-.*|t[tod]-.*|ok-kt-.*|ed-kt-.*)$/.test(k.id)) { if (el.tagName === 'SELECT' && ![...el.options].some(o => o.value === k.v)) return; el.value = k.v; } });
+  keep.forEach(k => { const el = document.getElementById(k.id); if (el && el.value !== k.v && !/^(ok-owner|subsel|pf-sub|pf-team|pf-role|ff-.*|t[tod]-.*|ok-kt-.*|ed-kt-.*|cf-.*)$/.test(k.id)) { if (el.tagName === 'SELECT' && ![...el.options].some(o => o.value === k.v)) return; el.value = k.v; } });
   if (focus) { const el = document.getElementById(focus.id); if (el) { el.focus(); try { if (focus.s != null) el.setSelectionRange(focus.s, focus.e); } catch (_) {} } }
 }
 function build() {
@@ -1570,23 +1664,24 @@ function build() {
   const real = realMe();
   const e = eff(), appr = e.role === 'manager' || e.role === 'ceo';
   const pend = appr ? pendingFor(e).length + revsFor(e).length : 0;
-  const badges = {appr: pend, welf: surveyDue(e) ? 1 : 0};
+  const badges = {appr: pend, ci: surveyDue(e) ? 1 : 0};
   const nav = [['dash', 'Dashboard', 'Overview'], ['lead', 'Team leaderboard', 'Overview'], ['okrs', 'OKRs', 'Goals'], ...(appr ? [['appr', 'Approvals', 'Goals']] : []),
     ['stand', 'Standup', 'Rhythm'], ['review', 'Friday Review', 'Rhythm'],
-    ...(isGroup(e) || e.role === 'manager' ? [['perf', 'Performance signals', 'People']] : []), ['rev', 'Reviews', 'People'], ...(isGroup(e) || e.role === 'manager' || onbFor(e.name) ? [['hire', 'Hiring and onboarding', 'People']] : []), ['welf', 'Welfare and leave', 'People'],
+    ...(isGroup(e) || e.role === 'manager' ? [['perf', 'Performance signals', 'People']] : []), ['ci', 'Check-ins', 'People'], ...(isGroup(e) || e.role === 'manager' || onbFor(e.name) ? [['hire', 'Hiring and onboarding', 'People']] : []),
     ...(isGroup(e) ? [['people', 'Directory', 'People']] : [])];
-  if (!nav.some(t => t[0] === tab)) tab = 'dash';
-  const views = {hire: viewHire, rev: viewRev, dash: viewDash, lead: viewLead, okrs: viewOkrs, appr: viewApprovals, stand: viewStand, review: viewReview, people: viewPeople, perf: viewPerf, welf: viewWelf};
+  const navAll = [...nav, ...(isGroup(e) ? [['settings', 'Settings', '']] : [])];
+  if (!navAll.some(t => t[0] === tab)) tab = 'dash';
+  const views = {settings: viewSet, hire: viewHire, ci: viewCheck, dash: viewDash, lead: viewLead, okrs: viewOkrs, appr: viewApprovals, stand: viewStand, review: viewReview, people: viewPeople, perf: viewPerf, };
   const others = S.people.filter(p => p.name !== real.name);
   const groups = [...new Set(nav.map(n => n[2]))];
-  const page = dossier ? 'Person record' : nav.find(n => n[0] === tab)[1];
+  const page = dossier ? 'Person record' : navAll.find(n => n[0] === tab)[1];
   return `<div class="app">
     <aside class="side${navOpen ? ' open' : ''}" aria-label="Sidebar">
       <div class="side-brand"><span class="logo" aria-hidden="true"></span><span>Team OKR Tracker</span></div>
       <nav aria-label="Main">${groups.map(g => `<div class="nav-lbl">${esc(g)}</div>${nav.filter(n => n[2] === g).map(([k, l]) =>
         `<button class="nav-i" data-act="tab" data-t="${k}"${tab === k ? ' aria-current="page"' : ''}>${icon(k)}<span>${esc(l)}</span>${badges[k] ? `<span class="badge">${badges[k]}</span>` : ''}</button>`).join('')}`).join('')}</nav>
       <div class="side-user"><div class="me">${avatar(e.name)}<div class="t"><b>${esc(e.name)}</b><span>${chip(ROLES[e.role] || e.role, ROLE_TONE[e.role])} ${esc(where(e))}</span></div></div>
-        <button class="btn ghost sm" data-act="dossier" data-id="${e.id}">My record</button><button class="btn ghost sm" data-act="signout">${icon('swap')}Switch user</button></div>
+        <button class="btn ghost sm" data-act="dossier" data-id="${e.id}">My record</button>${isGroup(e) ? `<button class="btn ghost sm" data-act="tab" data-t="settings"${tab === 'settings' ? ' aria-current="page"' : ''}>Settings</button>` : ''}<button class="btn ghost sm" data-act="signout">${icon('swap')}Switch user</button></div>
     </aside>
     <div class="scrim${navOpen ? ' on' : ''}" data-act="closenav"></div>
     <div class="mainwrap">
@@ -1606,7 +1701,7 @@ root.addEventListener('click', ev => {
   const b = ev.target.closest('[data-act]'); if (!b) return;
   
   const a = b.dataset.act, id = b.dataset.id, e = eff(), i = +b.dataset.i;
-  if (a === 'tab') { tab = b.dataset.t; confirmDel = null; navOpen = false; editing = null; okrUpd = null; krOpen = null; krVal = null; dossier = null; imp = null; }
+  if (a === 'tab') { tab = b.dataset.t; confirmDel = null; navOpen = false; editing = null; okrUpd = null; krOpen = null; dossier = null; imp = null; }
   else if (a === 'menu') navOpen = !navOpen;
   else if (a === 'closenav') navOpen = false;
   else if (a === 'wk') { const n = +b.dataset.n; if (n === 0) wk = curWeek(); else { const d = parseIso(wk); d.setDate(d.getDate() + 7 * n); wk = iso(d); } }
@@ -1622,7 +1717,7 @@ root.addEventListener('click', ev => {
   else if (a === 'delstand') del('stand', id);
   else if (a === 'delperson') { confirmDel = null; del('people', id); }
   else if (a === 'saveperson') upd('people', id, {mgr: val('pr-m-' + id) || null, email: val('pr-e-' + id).trim(), role: val('pr-r-' + id), sub: val('pr-s-' + id), team: val('pr-t-' + id).trim()}).then(ok => { if (ok) toast('Saved.'); });
-  else if (a === 'signout') { krVal = null; krOpen = null; standWho = null; revWho = null; okrUpd = null; tdraft = null; imp = null; openRole = null; hireTab = 'open'; openRev = null; day = null; dossier = null; perfTab = 'all'; editing = null; okrTab = null; ff = FF0(); pf = {q: '', team: '', role: ''}; uid = null; viewAs = null; subFilter = ''; }
+  else if (a === 'signout') { ciSeg = 'week'; krOpen = null; standWho = null; revWho = null; okrUpd = null; tdraft = null; imp = null; openRole = null; hireTab = 'open'; openRev = null; day = null; dossier = null; perfTab = 'all'; editing = null; okrTab = null; ff = FF0(); pf = {q: '', team: '', role: ''}; uid = null; viewAs = null; subFilter = ''; }
   else if (a === 'signin') { uid = id; viewAs = null; subFilter = ''; tab = 'dash'; }
   else if (a === 'subfilter') subFilter = b.dataset.s || '';
   else if (a === 'subappr') { subFilter = b.dataset.s; tab = 'appr'; }
@@ -1631,6 +1726,16 @@ root.addEventListener('click', ev => {
   else if (a === 'closedos') dossier = null;
   else if (a === 'perftab') perfTab = b.dataset.v;
   else if (a === 'dirview') dirView = b.dataset.v;
+  else if (a === 'addsub') { if (isGroup(e)) { readCfg(); S.cfg.subs.push('New subsidiary'); } }
+  else if (a === 'rmsub') { if (isGroup(e)) { readCfg(); const x = S.cfg.subs[i]; if (!S.people.some(p => p.sub === x)) S.cfg.subs.splice(i, 1); } }
+  else if (a === 'addlv') { if (isGroup(e)) { readCfg(); S.cfg.leave.push({type: 'New leave type', days: 0}); } }
+  else if (a === 'rmlv') { if (isGroup(e)) { readCfg(); if (S.cfg.leave.length > 1) S.cfg.leave.splice(i, 1); } }
+  else if (a === 'addow') { if (isGroup(e)) { readCfg(); S.cfg.onbWho.push('New owner'); } }
+  else if (a === 'rmow') { if (isGroup(e)) { readCfg(); if (S.cfg.onbWho.length > 1) S.cfg.onbWho.splice(i, 1); } }
+  else if (a === 'savecfg') { if (isGroup(e)) { const err = readCfg(true); toast(err || 'Settings saved.'); } }
+  else if (a === 'resetcfg') { if (isGroup(e)) { const d = CFG0(); S.cfg.subs.length = 0; d.subs.forEach(x => S.cfg.subs.push(x));
+      Object.assign(S.cfg, {leave: d.leave, yearStart: d.yearStart, staleDays: d.staleDays, behindAt: d.behindAt, aheadAt: d.aheadAt, standupWeeks: d.standupWeeks, enpsDays: d.enpsDays, reviewDueDays: d.reviewDueDays, onbWho: d.onbWho});
+      toast('Back to the defaults.'); } }
   else if (a === 'export') { exportCsv(b.dataset.x, e); return; }
   else if (a === 'pickcsv') { const el = $('#csv-in'); if (el) { el.value = ''; el.click(); } return; }
   else if (a === 'clearimp') imp = null;
@@ -1658,22 +1763,20 @@ root.addEventListener('click', ev => {
   else if (a === 'signdoc') { const d = S.docs.find(x => x.id === id); if (d && isGroup(e)) { d.status = 'Signed'; d.at = Date.now(); commit(); toast('Marked signed.'); } }
   else if (a === 'cancelrev') openRev = null;
   else if (a === 'opencycle') { if (isGroup(e)) { const y = curY(), h = curM() < 6 ? 'H1' : 'H2';
-      add('cycles', {name: h + ' ' + y + ' review', from: y + (h === 'H1' ? '-01-01' : '-07-01'), to: y + (h === 'H1' ? '-06-30' : '-12-31'), due: iso(new Date(Date.now() + 21 * 86400000)), status: 'Open'}); toast('Cycle opened.'); } }
+      add('cycles', {name: h + ' ' + y + ' review', from: y + (h === 'H1' ? '-01-01' : '-07-01'), to: y + (h === 'H1' ? '-06-30' : '-12-31'), due: iso(new Date(Date.now() + S.cfg.reviewDueDays * 86400000)), status: 'Open'}); toast('Cycle opened.'); } }
   else if (a === 'closecycle') { const c = liveCycle(); if (c && isGroup(e)) { c.status = 'Closed'; commit(); toast('Cycle closed.'); } }
   else if (a === 'delleave') del('leave', id);
   else if (a === 'apleave' || a === 'rejleave') { const l = S.leave.find(x => x.id === id);
     if (l && lbScope(e).has(l.owner) && l.owner !== e.name) { l.status = a === 'apleave' ? 'Approved' : 'Declined'; l.apBy = e.name; commit(); toast(a === 'apleave' ? 'Leave approved.' : 'Leave declined.'); } }
   else if (a === 'clearhr') { const p = S.people.find(x => x.id === dossier); if (p && isGroup(e)) { delete p.hrnote; commit(); toast('Cleared.'); } }
   else if (a === 'openupd') { okrUpd = id; editing = null; }
-  else if (a === 'krval') { krVal = b.dataset.o + '|' + i; }
-  else if (a === 'cancelkrval') krVal = null;
-  else if (a === 'krsugg') { const o = S.okrs.find(x => x.id === b.dataset.o), k = o && o.krs[i];
-    if (k && (o.owner === e.name || (o.owner === 'Company' && e.role === 'ceo'))) { k.cur = +b.dataset.v; k.curAt = Date.now(); commit(); toast('Value set from the standup log.'); } }
+  else if (a === 'usesugg') { const el = document.getElementById('up-kr-' + i); if (el) { el.value = b.dataset.v; el.focus(); } return; }
   else if (a === 'krlog') { const key = b.dataset.o + '|' + i; krOpen = krOpen === key ? null : key; }
   else if (a === 'cancelupd') okrUpd = null;
   else if (a === 'canceledit') editing = null;
   else if (a === 'kmove') { const o = S.okrs.find(x => x.id === b.dataset.o); if (o && !o.rev) { submitRev(o, {objective: o.objective, krs: o.krs.map((k, j) => ({src: j, title: k.title, month: j === i ? curM() : k.month}))}, e); commit(); return; } }
   else if (a === 'okrtab') { okrTab = b.dataset.v; editing = null; okrUpd = null; }
+  else if (a === 'ciseg') ciSeg = b.dataset.v;
   else if (a === 'standwho') standWho = b.dataset.v;
   else if (a === 'revwho') revWho = b.dataset.v;
   else if (a === 'addedkr') { if (editing) editing.krs.push({src: null, type: 'binary', target: '', unit: '', title: '', month: S.okrs.find(x => x.id === editing.id) && isPersonal(S.okrs.find(x => x.id === editing.id)) ? curM() : undefined}); }
@@ -1740,21 +1843,18 @@ root.addEventListener('submit', ev => {
     if (o.krs.some((k, j) => (k.pct === 100 || k.req) && !krs.some(x => x.src === j))) return toast('Key results that are approved or awaiting approval cannot be removed.');
     submitRev(o, {objective: obj, krs}, e);
     editing = null; commit();
-  } else if (f === 'savekrval') {
-    const o = S.okrs.find(x => x.id === val('kv-o')), k = o && o.krs[+val('kv-i')];
-    if (!o || !k) return;
-    if (!(o.owner === 'Company' ? e.role === 'ceo' : o.owner === e.name)) return toast('Only the owner can update this.');
-    const v = parseFloat(val('kv-n'));
-    if (!(v >= 0)) return toast('Enter a number.');
-    k.cur = v; k.curAt = Date.now(); krVal = null; commit(); toast('Updated.'); return;
   } else if (f === 'saveupd') {
     const o = S.okrs.find(x => x.id === val('up-id')); if (!o) return;
     const mine = o.owner !== 'Company' ? o.owner === e.name : isGroup(e);
     if (!mine) return toast('Only the owner can update a goal.');
     const text = val('up-text').trim(); if (!text) return toast('Add a line on what changed.');
+    let moved = 0;
+    o.krs.forEach((k, i) => { const el = document.getElementById('up-kr-' + i); if (!el) return;
+      const v = parseFloat(el.value); if (!(v >= 0) || v === (+k.cur || 0)) return;
+      k.cur = v; k.curAt = Date.now(); moved++; });
     o.status = val('up-st');
     o.updates = [...okrUpdates(o), {text, status: o.status, by: e.name, at: Date.now()}];
-    okrUpd = null; commit(); toast('Update posted.'); return;
+    okrUpd = null; commit(); toast(moved ? `Check-in posted, ${plural(moved, 'number', 'numbers')} updated.` : 'Check-in posted.'); return;
   } else if (f === 'savetmpl') {
     if (!tdraft || !isGroup(e)) return;
     readTmpl();
@@ -1807,8 +1907,9 @@ root.addEventListener('submit', ev => {
     if (!from || !to) return toast('Pick both dates.');
     if (to < from) return toast('The end date is before the start date.');
     const days = Math.round((parseIso(to) - parseIso(from)) / 86400000) + 1;
-    if (days > leaveBal(e.name)) return toast(`That is ${days} days and only ${leaveBal(e.name)} are left this year.`);
-    add('leave', {owner: e.name, from, to, days, type: val('lv-type'), status: 'Requested', by: e.name, at: Date.now(), apBy: ''});
+    const ty = val('lv-type');
+    if (days > leaveBal(e.name, ty)) return toast(`That is ${days} days and only ${leaveBal(e.name, ty)} days of ${ty.toLowerCase()} are left.`);
+    add('leave', {owner: e.name, from, to, days, type: ty, status: 'Requested', by: e.name, at: Date.now(), apBy: ''});
     toast('Sent to ' + approverOf({owner: e.name}) + ' for approval.');
   } else if (f === 'savewelf') {
     const load = +val('wf-load'), mood = +val('wf-mood'), note = val('wf-note').trim();
