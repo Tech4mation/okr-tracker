@@ -678,6 +678,10 @@ function buildMock() {
   // Seed progress relative to the pace expected this month, so the sample still
   // reads sensibly in March or December instead of only in the month it was written.
   const paceNow = (new Date().getMonth() + 1) / 12;
+  // Approve a key result inside the month it was due, so the history reads month by month.
+  const apDate = (mon, j) => { const nowM = new Date().getMonth(), m = mon == null ? nowM : Math.min(mon, nowM);
+    const d = new Date(new Date().getFullYear(), m, Math.min(26, 6 + j * 7), 11);
+    return Math.min(d.getTime(), Date.now() - 86400000); };
   const PACE = {'Maya Singh': 1.18, 'Dee Park': 1.02, 'Leo Vance': 0.96, 'Ben Carter': 0.93,
     'Sam Brooks': 0.9, 'Eli Ruiz': 0.88, 'Cy Mensah': 0.76, 'Ivy Chen': 0.7, 'Zoe Hart': 0.6, 'Noor Aziz': 0.05};
   okrs.filter(o => PACE[o.owner] != null).forEach(o => {
@@ -685,9 +689,17 @@ function buildMock() {
     o.krs.forEach((k, j) => {
       if (k.type === 'count' || k.type === 'level') { k.cur = Math.round(k.target * want); k.curManual = null; return; }
       const done = (j + 1) / n <= want + 1e-9;
-      if (done && k.pct !== 100) Object.assign(k, {pct: 100, req: false, apBy: approverOf(o.owner), apAt: Date.now() - (j + 1) * 6 * 86400000, w: Math.min(2, j)});
+      if (done) Object.assign(k, {pct: 100, req: false, apBy: approverOf(o.owner), apAt: apDate(k.month, j), w: Math.min(2, j)});
       if (!done && k.pct === 100) Object.assign(k, {pct: 0, req: false, apBy: '', apAt: 0});
     });
+  });
+  // A couple of key results that slipped, so the history shows real pushed-back work.
+  [['Cy Mensah', 2, 2], ['Zoe Hart', 2, 1], ['Eli Ruiz', 3, 2]].forEach(([who, idx, backBy]) => {
+    const o = okrs.find(x => x.owner === who); if (!o) return;
+    const k = o.krs[Math.min(idx, o.krs.length - 1)];
+    if (!k || k.month == null || k.pct === 100) return;
+    const from = Math.max(0, k.month - backBy);
+    if (from !== k.month) k.moves = [{from, to: k.month, at: Date.now() - backBy * 20 * 86400000}];
   });
   // Leave a few requests sitting with their approver so the Approvals page has work in it.
   [['Cy Mensah', 1], ['Zoe Hart', 1], ['Eli Ruiz', 2], ['Ivy Chen', 1]].forEach(([who, idx]) => {
