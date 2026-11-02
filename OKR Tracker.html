@@ -343,7 +343,7 @@ const fn = n => Number(n || 0).toLocaleString('en-US', {maximumFractionDigits: 2
 const r0 = n => Math.round(n);
 
 let uid = null, pf = {q: '', team: '', role: ''};
-const FF0 = () => ({hire: {q: '', team: ''}, okrst: {q: '', team: ''}, rev: {q: '', team: '', v: ''}, lead: {q: '', team: ''}, perf: {q: '', team: ''}, welf: {q: '', team: ''}, okrs: {q: '', team: '', st: '', mo: ''}, appr: {q: '', team: ''}, stand: {q: '', st: ''}, review: {q: '', st: ''}});
+const FF0 = () => ({hist: {q: '', team: '', v: ''}, hire: {q: '', team: ''}, okrst: {q: '', team: ''}, rev: {q: '', team: '', v: ''}, lead: {q: '', team: ''}, perf: {q: '', team: ''}, welf: {q: '', team: ''}, okrs: {q: '', team: '', st: '', mo: ''}, appr: {q: '', team: ''}, stand: {q: '', st: ''}, review: {q: '', st: ''}});
 let ff = FF0();
 let wk = curWeek(), tab = 'dash', viewAs = null, confirmDel = null;
 let draft = {owner:null, obj:'', krs:['',''], ms:[null,null], kt:['binary','binary'], tg:['',''], un:['','']}, showForm = false, navOpen = false;
@@ -417,6 +417,25 @@ function autoStatus(o) {
   return 'On track';
 }
 const okrStatus = o => autoStatus(o);
+// A key result's plan is not just where it sits now: it is every month it was promised for.
+const moveLog = (k, to) => (k.month != null && to != null && to !== k.month)
+  ? [...(k.moves || []), {from: k.month, to, at: Date.now()}] : (k.moves || []);
+const plannedFor = (k, m) => k.month === m || (k.moves || []).some(x => x.from === m);
+const movedOutOf = (k, m) => (k.moves || []).some(x => x.from === m) && k.month !== m;
+const doneInMonth = (k, m) => k.pct === 100 && k.apAt && new Date(k.apAt).getMonth() === m && new Date(k.apAt).getFullYear() === curY();
+// What a month actually came to: delivered, let go, or still owed.
+function monthRows(e, m) {
+  const out = [];
+  S.okrs.filter(o => isPersonal(o) && scope(e).has(o.owner)).forEach(o => o.krs.forEach((k, i) => {
+    if (k.month == null) return;
+    const planned = plannedFor(k, m), done = doneInMonth(k, m);
+    if (!planned && !done) return;
+    const outcome = done ? 'delivered' : movedOutOf(k, m) ? 'moved' : (m < curM() ? 'missed' : 'open');
+    out.push({o, k, i, outcome});
+  }));
+  return out;
+}
+const OUTCOME = {delivered: ['Delivered', 'good'], moved: ['Pushed back', 'warn'], missed: ['Missed', 'bad'], open: ['Still open', '']};
 const okrUpdates = o => o.updates || [];
 const lastUpd = o => { const u = okrUpdates(o); return u.length ? u[u.length - 1] : null; };
 const staleDays = o => { const u = lastUpd(o); return u ? Math.floor((Date.now() - u.at) / 86400000) : null; };
@@ -565,12 +584,12 @@ function canApprove(e, o) {
 }
 const revsFor = e => S.okrs.filter(o => o.rev && canApprove(e, o) && (e.role !== 'ceo' || !subFilter || person(o.owner)?.sub === subFilter));
 const approverOf = o => { const m = mgrOf(person(o.owner)); return m ? m.name : 'the CEO'; };
-const applyRev = (o, r) => { o.krs = r.krs.map(k => k.src != null ? {...o.krs[k.src], title: k.title, month: k.month, type: k.type, target: k.type === 'binary' ? 0 : +k.target, unit: k.unit} : {title: k.title, pct: 0, req: false, reqAt: 0, apBy: '', month: k.month, type: k.type, target: k.type === 'binary' ? 0 : +k.target, unit: k.unit, cur: 0}); o.objective = r.objective; };
+const applyRev = (o, r) => { o.krs = r.krs.map(k => k.src != null ? {...o.krs[k.src], moves: moveLog(o.krs[k.src], k.month), title: k.title, month: k.month, type: k.type, target: k.type === 'binary' ? 0 : +k.target, unit: k.unit} : {title: k.title, pct: 0, req: false, reqAt: 0, apBy: '', month: k.month, type: k.type, target: k.type === 'binary' ? 0 : +k.target, unit: k.unit, cur: 0}); o.objective = r.objective; };
 function submitRev(o, rev, e) {
   if (e.role === 'ceo' || canApprove(e, o)) { applyRev(o, rev); toast('Saved.'); }
   else { o.rev = {...rev, by: e.name, at: Date.now()}; toast('Sent to ' + approverOf(o) + ' for approval.'); }
 }
-let editing = null, okrUpd = null, krOpen = null, ciSeg = 'week', okrTab = null, standWho = null, revWho = null, dossier = null, perfTab = 'all', day = null, dirView = 'table', openRev = null, openRole = null, hireTab = 'open', imp = null, tdraft = null;
+let editing = null, okrUpd = null, krOpen = null, ciSeg = 'week', histM = null, okrTab = null, standWho = null, revWho = null, dossier = null, perfTab = 'all', day = null, dirView = 'table', openRev = null, openRole = null, hireTab = 'open', imp = null, tdraft = null;
 function pendingFor(e) {
   const out = [];
   S.okrs.forEach(o => (o.krs || []).forEach((k, i) => { if (k.req && k.pct !== 100 && canApprove(e, o) && (e.role !== 'ceo' || !subFilter || person(o.owner)?.sub === subFilter)) out.push({o, k, i}); }));
@@ -1190,13 +1209,14 @@ function viewOkrs(e) {
   const mineNames = allPeople.filter(n => n === e.name), teamNamesL = allPeople.filter(n => n !== e.name);
   const hasTeam = [...sc].some(n => n !== e.name);
   const view = okrTab && (okrTab !== 'team' || hasTeam) ? okrTab : (isGroup(e) ? 'company' : 'personal');
+  const hm = histM == null ? Math.max(0, curM() - 1) : histM;
   const nMine = mineNames.reduce((t, n) => t + personOkrs(n).length, 0);
   const nTeam = teamNamesL.reduce((t, n) => t + personOkrs(n).length, 0);
   const forView = view === 'company' ? [] : people.filter(n => view === 'personal' ? n === e.name : n !== e.name);
   const shownN = view === 'company' ? company.length : forView.reduce((t, n) => t + personOkrs(n).filter(shown).length, 0);
   const tabs = `<div class="seg" role="tablist" aria-label="Whose goals">${[['company', 'Company', allCompany.length],
-    ...(hasTeam ? [['team', isGroup(e) ? 'Everyone' : 'My team', nTeam]] : []), ['personal', 'Mine', nMine]].map(([v, l, c]) =>
-    `<button role="tab" aria-selected="${view === v}" data-act="okrtab" data-v="${v}">${l}<span class="seg-n">${c}</span></button>`).join('')}</div>`;
+    ...(hasTeam ? [['team', isGroup(e) ? 'Everyone' : 'My team', nTeam]] : []), ['personal', 'Mine', nMine], ['hist', 'History', null]].map(([v, l, c]) =>
+    `<button role="tab" aria-selected="${view === v}" data-act="okrtab" data-v="${v}">${l}${c == null ? '' : `<span class="seg-n">${c}</span>`}</button>`).join('')}</div>`;
   const ow = ownerOptions(e);
   if (!ow.includes(draft.owner)) draft.owner = ow[0];
   const n = draft.krs.length;
@@ -1219,8 +1239,31 @@ function viewOkrs(e) {
   ${e.role === 'member' ? `<div class="banner info"><span>Your line manager sets your OKRs. You can edit them, and ${esc(approverOf({owner: e.name}))} has to approve each change before it takes effect.</span></div>` : ''}
   ${form}
   ${tabs}
-  <p class="sub" style="margin:0">${view === 'company' ? 'Company OKRs are annual. Corporate direction rarely changes abruptly, so they stay in place all year.' : view === 'team' ? 'Everyone in your scope. You can see their goals and standing, but only they can update them.' : 'Planned by month and adjustable monthly if the work is not going to plan. Changes go to your line manager for approval.'}</p>
-  ${(view === 'company' ? allCompany.length : view === 'team' ? nTeam : nMine) > 1 ? fbar('okrs', {ph: view === 'company' ? 'Search company OKRs or key results' : 'Search objectives, key results or people', team: view === 'team' ? teamsIn(teamNamesL) : [], mo: view !== 'company' ? MON.map((m, i) => [String(i), MONFULL[i] + (i === curM() ? ' (this month)' : '')]) : null, st: [...OKRST.map(x => [x, x]), ['stale', 'Not updated recently']], stLabel: 'Standing', stAll: 'Any', count: `Showing ${shownN} of ${view === 'company' ? allCompany.length : view === 'team' ? nTeam : nMine} OKRs`}) : ''}
+  ${view === 'hist' ? '<p class="sub" style="margin:0">What each month came to. A key result is delivered in the month it was approved, missed if its month passed without approval, and pushed back if it was promised for that month and later moved.</p>' : `<p class="sub" style="margin:0">${view === 'company' ? 'Company OKRs are annual. Corporate direction rarely changes abruptly, so they stay in place all year.' : view === 'team' ? 'Everyone in your scope. You can see their goals and standing, but only they can update them.' : 'Planned by month and adjustable monthly if the work is not going to plan. Changes go to your line manager for approval.'}</p>`}
+  ${view !== 'hist' && (view === 'company' ? allCompany.length : view === 'team' ? nTeam : nMine) > 1 ? fbar('okrs', {ph: view === 'company' ? 'Search company OKRs or key results' : 'Search objectives, key results or people', team: view === 'team' ? teamsIn(teamNamesL) : [], mo: view !== 'company' ? MON.map((m, i) => [String(i), MONFULL[i] + (i === curM() ? ' (this month)' : '')]) : null, st: [...OKRST.map(x => [x, x]), ['stale', 'Not updated recently']], stLabel: 'Standing', stAll: 'Any', count: `Showing ${shownN} of ${view === 'company' ? allCompany.length : view === 'team' ? nTeam : nMine} OKRs`}) : ''}
+  ${view === 'hist' ? (rows => {
+    const f = ff.hist, q = f.q.trim().toLowerCase();
+    const shown = rows.filter(r => (!f.v || r.outcome === f.v) && (!f.team || person(r.o.owner)?.team === f.team) && hit(q, r.o.owner, r.k.title, r.o.objective));
+    const n = k2 => rows.filter(r => r.outcome === k2).length;
+    const byOwner = grouped(shown.map(r => ({...r, owner: r.o.owner})), 'owner');
+    return `<div class="row" style="gap:4px"><button class="btn quiet sm" data-act="histm" data-n="-1" aria-label="Earlier month">&lsaquo;</button>
+      <span class="num" style="min-width:150px;text-align:center">${esc(MONFULL[hm])} ${esc(curY())}</span>
+      <button class="btn quiet sm" data-act="histm" data-n="1" aria-label="Later month"${hm >= curM() ? ' disabled' : ''}>&rsaquo;</button>
+      ${hm !== Math.max(0, curM() - 1) ? '<button class="btn quiet sm" data-act="histm" data-n="0">Last month</button>' : ''}</div>
+    <div class="stats">${stat('tea', 'Delivered', n('delivered'), 'Approved during ' + MONFULL[hm], null, 'okrs')}
+      ${stat('ros', 'Missed', n('missed'), 'Due that month and never approved', null, 'okrs')}
+      ${stat('amb', 'Pushed back', n('moved'), 'Promised for that month, moved later', null, 'okrs')}
+      ${stat('ind', 'Still open', n('open'), 'Due this month, not yet approved', null, 'okrs')}</div>
+    ${rows.length > 1 ? fbar('hist', {ph: 'Search by person, objective or key result', team: teamsIn(rows.map(r => r.o.owner)),
+      v: Object.entries(OUTCOME).map(([a2, b2]) => [a2, b2[0]]), vLabel: 'Outcome', vAll: 'Any outcome',
+      count: `Showing ${shown.length} of ${rows.length} key results`}) : ''}
+    ${byOwner.length ? byOwner.map(([who, list]) => `<section class="card"><div class="person-h">${avatar(who)}<b class="grow">${dosLink(e, person(who))}</b>
+      <span class="sub">${list.filter(r => r.outcome === 'delivered').length} of ${list.length} delivered</span></div>
+      <div class="list">${list.map(r => `<div class="kr"><div class="t">${esc(r.k.title)}
+        <div class="sub">${esc(r.o.objective)}${r.outcome === 'moved' ? ' &middot; now due ' + MON[r.k.month] : ''}${r.outcome === 'delivered' && r.k.apBy ? ' &middot; approved by ' + esc(r.k.apBy) : ''}</div></div>
+        ${chip(OUTCOME[r.outcome][0], OUTCOME[r.outcome][1])}</div>`).join('')}</div></section>`).join('')
+      : `<div class="card">${empty(rows.length ? 'Nothing matches these filters.' : 'Nothing was planned for ' + MONFULL[hm] + '.')}</div>`}`;
+  })(monthRows(e, hm)) : ''}
   ${view === 'company' ? `<section class="block"><div class="sec-h"><h2>Company OKRs</h2>${company.length ? `<span class="sub">Average <span class="num">${r0(companyPct(e))}%</span></span>` : ''}</div><p class="sub" style="margin:-4px 0 4px">Goals for the whole company or one subsidiary.</p>
     ${company.length ? company.map(o => okrCard(o, e)).join('') : `<div class="card">${empty((f.q || f.st || f.team ? 'No company OKRs match these filters.' : 'No company OKRs yet.') + (e.role === 'ceo' ? ' Choose New OKR and set the owner to Whole company or a subsidiary.' : ''))}</div>`}</section>` : ''}
   ${view !== 'company' ? `<section class="block"><div class="sec-h"><h2>${view === 'personal' ? 'My OKRs' : isGroup(e) ? 'Everyone' : 'My team'}</h2></div>
@@ -1753,7 +1796,7 @@ root.addEventListener('click', ev => {
   else if (a === 'delstand') del('stand', id);
   else if (a === 'delperson') { confirmDel = null; del('people', id); }
   else if (a === 'saveperson') upd('people', id, {mgr: val('pr-m-' + id) || null, email: val('pr-e-' + id).trim(), role: val('pr-r-' + id), sub: val('pr-s-' + id), team: val('pr-t-' + id).trim()}).then(ok => { if (ok) toast('Saved.'); });
-  else if (a === 'signout') { ciSeg = 'week'; krOpen = null; standWho = null; revWho = null; okrUpd = null; tdraft = null; imp = null; openRole = null; hireTab = 'open'; openRev = null; day = null; dossier = null; perfTab = 'all'; editing = null; okrTab = null; ff = FF0(); pf = {q: '', team: '', role: ''}; uid = null; viewAs = null; subFilter = ''; }
+  else if (a === 'signout') { histM = null; ciSeg = 'week'; krOpen = null; standWho = null; revWho = null; okrUpd = null; tdraft = null; imp = null; openRole = null; hireTab = 'open'; openRev = null; day = null; dossier = null; perfTab = 'all'; editing = null; okrTab = null; ff = FF0(); pf = {q: '', team: '', role: ''}; uid = null; viewAs = null; subFilter = ''; }
   else if (a === 'signin') { uid = id; viewAs = null; subFilter = ''; tab = 'dash'; }
   else if (a === 'subfilter') subFilter = b.dataset.s || '';
   else if (a === 'subappr') { subFilter = b.dataset.s; tab = 'appr'; }
@@ -1809,8 +1852,9 @@ root.addEventListener('click', ev => {
   else if (a === 'krlog') { const key = b.dataset.o + '|' + i; krOpen = krOpen === key ? null : key; }
   else if (a === 'cancelupd') okrUpd = null;
   else if (a === 'canceledit') editing = null;
-  else if (a === 'kmove') { const o = S.okrs.find(x => x.id === b.dataset.o); if (o && !o.rev) { submitRev(o, {objective: o.objective, krs: o.krs.map((k, j) => ({src: j, title: k.title, month: j === i ? curM() : k.month}))}, e); commit(); return; } }
+  else if (a === 'kmove') { const o = S.okrs.find(x => x.id === b.dataset.o); if (o && !o.rev) { submitRev(o, {objective: o.objective, krs: o.krs.map((k, j) => ({src: j, title: k.title, month: j === i ? curM() : k.month, type: k.type, target: k.target, unit: k.unit}))}, e); commit(); return; } }
   else if (a === 'okrtab') { okrTab = b.dataset.v; editing = null; okrUpd = null; }
+  else if (a === 'histm') { const n = +b.dataset.n, cur = histM == null ? Math.max(0, curM() - 1) : histM; histM = n === 0 ? Math.max(0, curM() - 1) : Math.max(0, Math.min(curM(), cur + n)); }
   else if (a === 'ciseg') ciSeg = b.dataset.v;
   else if (a === 'standwho') standWho = b.dataset.v;
   else if (a === 'revwho') revWho = b.dataset.v;
