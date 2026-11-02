@@ -381,10 +381,11 @@ const person = n => S.people.find(x => x.name === n);
 // ---------- progress ----------
 const gain = (n, w) => S.logs.filter(l => l.owner === n && l.week === w).reduce((s,l) => s + l.delta, 0);
 // Milestone by default. A target counts up; a level is the latest reading.
-const KRTYPE = [['binary', 'Done or not done'], ['count', 'Counts up \u2014 adds up the work you log'], ['level', 'A level \u2014 the latest figure, never a total']];
-const krMeasured = k => (k.type === 'count' || k.type === 'level') && +k.target > 0;
-const krFrac = (k, o, i) => k.pct === 100 ? 1 : krMeasured(k) ? Math.min(1, (o ? krCur(o, k, i) : (+k.cur || 0)) / +k.target) : 0;
-const krMeasure = (o, k, i) => `${fn(krCur(o, k, i))} of ${fn(k.target)}${k.unit ? ' ' + k.unit : ''}`;
+const KRTYPE = [['binary', 'Done or not done'], ['count', 'A number to reach'], ['monthly', 'A number to reach every month']];
+const isMonthly = k => k.type === 'monthly';
+const krMeasured = k => (k.type === 'count' || k.type === 'monthly') && +k.target > 0;
+const krFrac = (k, o, i) => (k.pct === 100 && !isMonthly(k)) ? 1 : krMeasured(k) ? Math.min(1, (o ? krCur(o, k, i) : (+k.cur || 0)) / +k.target) : 0;
+const krMeasure = (o, k, i) => `${isMonthly(k) ? MON[curM()] + ': ' : ''}${fn(krCur(o, k, i))} of ${fn(k.target)}${k.unit ? ' ' + k.unit : ''}${isMonthly(k) ? ' this month' : ''}`;
 const okrPct = o => o.krs?.length ? o.krs.reduce((t, k, i) => t + krFrac(k, o, i), 0) / o.krs.length * 100 : 0;
 const personOkrs = n => S.okrs.filter(o => o.owner === n);
 const personPct = n => { const a = personOkrs(n); return a.length ? a.reduce((s,o) => s + okrPct(o), 0) / a.length : 0; };
@@ -393,7 +394,7 @@ const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct
 const MONFULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const curM = () => new Date().getMonth(), curY = () => new Date().getFullYear();
 const isPersonal = o => o.owner !== 'Company';
-const overdue = (o, k) => isPersonal(o) && k.month != null && k.pct !== 100 && (o.year < curY() || (o.year === curY() && k.month < curM()));
+const overdue = (o, k) => isPersonal(o) && !isMonthly(k) && k.month != null && k.pct !== 100 && (o.year < curY() || (o.year === curY() && k.month < curM()));
 const monOpts = sel => MONFULL.map((m, i) => `<option value="${i}"${sel === i ? ' selected' : ''}>${m}</option>`).join('');
 const dateShort = t => new Date(t).toLocaleDateString(undefined, {day: 'numeric', month: 'short'});
 // Industry pattern: the owner says where a goal stands, the system only
@@ -427,6 +428,12 @@ const doneInMonth = (k, m) => k.pct === 100 && k.apAt && new Date(k.apAt).getMon
 function monthRows(e, m) {
   const out = [];
   S.okrs.filter(o => isPersonal(o) && scope(e).has(o.owner)).forEach(o => o.krs.forEach((k, i) => {
+    if (isMonthly(k)) {
+      const got = achievedIn(o.id, i, m);
+      if (!got && m > curM()) return;
+      out.push({o, k, i, outcome: got >= k.target ? 'delivered' : m < curM() ? 'missed' : 'open', got});
+      return;
+    }
     if (k.month == null) return;
     const planned = plannedFor(k, m), done = doneInMonth(k, m);
     if (!planned && !done) return;
@@ -474,7 +481,7 @@ const lastUpd = o => { const u = okrUpdates(o); return u.length ? u[u.length - 1
 const staleDays = o => { const u = lastUpd(o); return u ? Math.floor((Date.now() - u.at) / 86400000) : null; };
 const isStale = o => { const d = staleDays(o); return d === null || d > S.cfg.staleDays; };
 // Only a hand-entered number can go stale; an automatic one keeps itself current.
-const krStale = (o, k, i) => krMeasured(k) && k.pct !== 100 && !krAuto(o, k, i) && (!k.curAt || Date.now() - k.curAt > S.cfg.staleDays * 86400000);
+const krStale = (o, k, i) => krMeasured(k) && !isMonthly(k) && k.pct !== 100 && !krAuto(o, k, i) && (!k.curAt || Date.now() - k.curAt > S.cfg.staleDays * 86400000);
 const staleLabel = o => { const d = staleDays(o); return d === null ? 'never updated' : d === 0 ? 'updated today' : d === 1 ? 'updated yesterday' : 'updated ' + d + ' days ago'; };
 const krRef = x => { if (!x.okr) return null; const o = S.okrs.find(y => y.id === x.okr); const k = o && o.krs[x.kr]; return k ? {o, k} : null; };
 const krOpts = n => S.okrs.filter(o => o.owner === n).flatMap(o => o.krs.map((k, i) => ({v: o.id + '|' + i, l: k.title, g: o.objective})));
@@ -487,8 +494,12 @@ const latestLogged = (oid, ki) => { const d = activityOn(oid, ki).filter(x => x.
 const pendingTotal = (oid, ki) => activityOn(oid, ki).filter(x => x.status !== 'Done' && x.n != null).reduce((t, x) => t + (+x.n || 0), 0);
 // A counting key result reads itself off the standup log. A reading has nothing to read from,
 // so it stays manual. Either can be overridden by its owner.
-const krAuto = (o, k, i) => k.type === 'count' && hasLog(o.id, i) && k.curManual == null;
-const krCur = (o, k, i) => krAuto(o, k, i) ? loggedTotal(o.id, i) : (k.curManual != null ? +k.curManual : (+k.cur || 0));
+const inMonth = (x, m) => { const d = parseIso(x.day || x.week); return d.getMonth() === m && d.getFullYear() === curY(); };
+const achievedIn = (oid, ki, m) => activityOn(oid, ki).filter(x => x.status === 'Done' && x.n != null && inMonth(x, m)).reduce((t, x) => t + (+x.n || 0), 0);
+// A standing target always reads from the log: it resets every month, so there is
+// nothing sensible for a person to type in and nothing to carry over.
+const krAuto = (o, k, i) => isMonthly(k) || (k.type === 'count' && hasLog(o.id, i) && k.curManual == null);
+const krCur = (o, k, i) => isMonthly(k) ? achievedIn(o.id, i, curM()) : krAuto(o, k, i) ? loggedTotal(o.id, i) : (k.curManual != null ? +k.curManual : (+k.cur || 0));
 const actList = (rows, e) => `<div class="actlog"><div class="list">${rows.map(x => actLine(x, e)).join('')}</div></div>`;
 const krState = k => k.pct === 100 ? 'approved' : k.req ? 'awaiting' : 'open';
 
@@ -697,12 +708,12 @@ function buildMock() {
     'Harden security': ['On track', 3, 'SSO out, audit evidence being collected.']
   };
   const MEAS = {
-    'Grow the newsletter to 20,000': ['level', 20000, 'subscribers', 14200, 3],
+    'Grow the newsletter to 20,000': ['count', 20000, 'subscribers', 14200, 3],
     'Launch three new channels': ['count', 3, 'channels', 1, 25],
-    'Reach 90% setup completion': ['level', 90, '%', 72, 5],
+    'Reach 90% setup completion': ['count', 90, '%', 72, 5],
     'Run 10 experiments': ['count', 10, 'experiments', 6, 2],
     'Reach 500 referred sign-ups': ['count', 500, 'sign-ups', 310, 4],
-    'Reach 90% test coverage': ['level', 90, '%', 64, 30],
+    'Reach 90% test coverage': ['count', 90, '%', 64, 30],
     'Train 30 customers': ['count', 30, 'customers', 2, 18]
   };
   okrs.forEach(o => o.krs.forEach(k => { const m = MEAS[k.title]; if (m) Object.assign(k, {type: m[0], target: m[1], unit: m[2], cur: m[3], curAt: Date.now() - m[4] * 86400000}); }));
@@ -721,7 +732,7 @@ function buildMock() {
   okrs.filter(o => PACE[o.owner] != null).forEach(o => {
     const want = Math.max(0, Math.min(1, PACE[o.owner] * paceNow)), n = o.krs.length;
     o.krs.forEach((k, j) => {
-      if (k.type === 'count' || k.type === 'level') { k.cur = Math.round(k.target * want); k.curManual = null; return; }
+      if (krMeasured(k)) { k.cur = Math.round(k.target * want); k.curManual = null; return; }
       const done = (j + 1) / n <= want + 1e-9;
       if (done) Object.assign(k, {pct: 100, req: false, apBy: approverOf(o.owner), apAt: apDate(k.month, j), w: Math.min(2, j)});
       if (!done && k.pct === 100) Object.assign(k, {pct: 0, req: false, apBy: '', apAt: 0});
@@ -891,7 +902,8 @@ function buildMock() {
     {id: uuid(), week: weekIso(1), sentAt: Date.now() - 9 * 86400000, sentBy: 'Fay Lund', remindedAt: 0, closed: true}];
   return {people, okrs, logs, stand, wnotes, welfare, leave, cycles, reviews, roles, cands, ones, fb, docs, surveys, onb, tmpl};
 }
-function loadData() { const d = buildMock(); COLS.forEach(c => S[c] = d[c]); S.cfg = CFG0(); SUBS = S.cfg.subs; uid = null; }
+function loadData() { const d = buildMock();
+  d.okrs.forEach(o => o.krs.forEach(k => { if (k.type === 'level') k.type = 'count'; })); COLS.forEach(c => S[c] = d[c]); S.cfg = CFG0(); SUBS = S.cfg.subs; uid = null; }
 const save = () => render();
 const commit = () => render();
 let tt; function toast(m) { const t = $('#toast'); t.textContent = m; t.hidden = false; clearTimeout(tt); tt = setTimeout(() => t.hidden = true, 3500); }
@@ -958,7 +970,7 @@ function buildCsv(kind, e) {
     ...[...lbScope(e)].map(n => risk(n)).filter(Boolean).map(r => [r.n, r.p.title, r.p.sub, r.p.team, BAND[r.band][0], r.said.join('; '), r.chase.join('; '), r0(r.pct), r0(r.exp), r0(r.ix), r0(r.sr), r.stale, r.numStale, r.rating ? r.rating.rating + '/5' : ''])]);
   if (kind === 'okrs') return toCsv([['Owner', 'Objective', 'Year', 'Key result', 'Kind', 'Current', 'Target', 'Unit', 'Progress %', 'Due month', 'Status', 'Approved by', 'Approved on'],
     ...S.okrs.filter(o => o.owner === 'Company' ? cv(o, e) : scope(e).has(o.owner)).flatMap(o => o.krs.map((k, i) =>
-      [ownerLabel(o), o.objective, o.year, k.title, krMeasured(k) ? (k.type === 'count' ? 'Counts up' : 'Reading') : 'Done or not done', krMeasured(k) ? krCur(o, k, i) : '', krMeasured(k) ? k.target : '', k.unit || '', r0(krFrac(k, o, i) * 100), k.month != null ? MONFULL[k.month] : '', k.pct === 100 ? 'Approved' : k.req ? 'Awaiting approval' : overdue(o, k) ? 'Overdue' : 'Open', k.apBy || '', d(k.apAt)]))]);
+      [ownerLabel(o), o.objective, o.year, k.title, isMonthly(k) ? 'Monthly target' : krMeasured(k) ? 'A number to reach' : 'Done or not done', krMeasured(k) ? krCur(o, k, i) : '', krMeasured(k) ? k.target : '', k.unit || '', r0(krFrac(k, o, i) * 100), k.month != null ? MONFULL[k.month] : '', k.pct === 100 ? 'Approved' : k.req ? 'Awaiting approval' : overdue(o, k) ? 'Overdue' : 'Open', k.apBy || '', d(k.apAt)]))]);
   if (kind === 'stand') return toCsv([['Date', 'Week', 'Person', 'Activity', 'Status', 'Figure', 'Unit'],
     ...S.stand.filter(x => scope(e).has(x.owner)).sort((a, b) => (b.day || b.week).localeCompare(a.day || a.week)).map(x => [x.day || x.week, x.week, x.owner, x.text, x.status, x.n ?? '', x.unit || ''])]);
   if (kind === 'leave') return toCsv([['Person', 'Type', 'From', 'To', 'Days', 'Status', 'Approved by'],
@@ -1194,7 +1206,7 @@ function editForm(o, direct) {
     <label class="f">Objective<input type="text" id="ed-obj" data-draft="ed-obj" value="${esc(d.obj)}"></label>
     <div style="display:flex;flex-direction:column;gap:8px"><span class="lbl">Key results · ${fmt(100 / d.krs.length)}% each</span>
     ${d.krs.map((k, i) => { const lock = k.src != null && (o.krs[k.src].pct === 100 || o.krs[k.src].req);
-      return `<div class="krform"><div class="row" style="flex-wrap:nowrap"><input type="text" class="grow" id="ed-kr-${i}" data-draft="ed-kr" data-i="${i}" value="${esc(k.title)}" aria-label="Key result ${i + 1}">${isPersonal(o) ? `<select id="ed-km-${i}" data-chg="edmonth" data-i="${i}" aria-label="Due month">${monOpts(k.month)}</select>` : ''}${d.krs.length > 2 && !lock ? `<button type="button" class="btn quiet sm" data-act="rmedkr" data-i="${i}">Remove</button>` : ''}</div>
+      return `<div class="krform"><div class="row" style="flex-wrap:nowrap"><input type="text" class="grow" id="ed-kr-${i}" data-draft="ed-kr" data-i="${i}" value="${esc(k.title)}" aria-label="Key result ${i + 1}">${isPersonal(o) && (k.type || 'binary') !== 'monthly' ? `<select id="ed-km-${i}" data-chg="edmonth" data-i="${i}" aria-label="Due month">${monOpts(k.month)}</select>` : ''}${d.krs.length > 2 && !lock ? `<button type="button" class="btn quiet sm" data-act="rmedkr" data-i="${i}">Remove</button>` : ''}</div>
       <div class="row"><select id="ed-kk-${i}" data-chg="edkind" data-i="${i}" aria-label="How it is measured">${KRTYPE.map(([v, l]) => `<option value="${v}"${(k.type || 'binary') === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>
         ${(k.type || 'binary') !== 'binary' ? `<input type="number" min="0" step="any" id="ed-ktg-${i}" data-draft="edtg" data-i="${i}" value="${esc(String(k.target ?? ''))}" placeholder="Target" aria-label="Target ${i + 1}" style="width:120px">
         <input type="text" id="ed-kun-${i}" data-draft="edun" data-i="${i}" value="${esc(k.unit || '')}" placeholder="Unit" aria-label="Unit ${i + 1}" style="width:150px">` : ''}</div></div>`; }).join('')}
@@ -1232,7 +1244,7 @@ function okrCard(o, e) {
     <div class="list">${o.krs.map((k, i) => {
       const st = krState(k);
       if (ff.okrs.mo && isPersonal(o) && String(k.month) !== ff.okrs.mo) return '';
-      const od = overdue(o, k), due = isPersonal(o) && k.month != null && st !== 'approved' ? chip((od ? 'Overdue · ' : 'Due ') + MON[k.month], od ? 'bad' : '') : '';
+      const od = overdue(o, k), due = isMonthly(k) ? chip('Every month', 'acc') : isPersonal(o) && k.month != null && st !== 'approved' ? chip((od ? 'Overdue · ' : 'Due ') + MON[k.month], od ? 'bad' : '') : '';
       const status = st === 'approved' ? chip('Approved' + (k.apBy ? ' by ' + k.apBy : '') + (k.apAt ? ' · ' + dateShort(k.apAt) : ''), 'good') : st === 'awaiting' ? chip('Awaiting approval', 'warn') : chip('Not completed');
       let act = '', mv = '';
       if (od && o.year === curY() && !o.rev && (direct || o.owner === e.name)) mv = `<button class="btn quiet sm" data-act="kmove" data-o="${o.id}" data-i="${i}" title="${direct ? 'Move this key result to this month' : 'Ask your line manager to move this key result to this month'}">Move to ${MON[curM()]}</button>`;
@@ -1246,10 +1258,10 @@ function okrCard(o, e) {
       const meas = krMeasured(k), frac = krFrac(k, o, i), isAuto = krAuto(o, k, i);
       const valUi = !meas ? '' : `<div class="measure">
         <div class="prog">${bar(frac * 100, frac >= 1 ? 'good' : '')}<span class="pc">${r0(frac * 100)}%</span></div>
-        <div class="row" style="gap:8px"><span class="sub num">${esc(krMeasure(o, k, i))}</span>${isAuto ? `<span class="sub">counted from the standup log</span>`
-          : k.type === 'level' && latestLogged(o.id, i) != null ? `<span class="sub">a reading is the latest figure, not a total &middot; the log last said ${fn(latestLogged(o.id, i))}</span>`
+        <div class="row" style="gap:8px"><span class="sub num">${esc(krMeasure(o, k, i))}</span>${isMonthly(k) ? `<span class="sub">counted from the standup log &middot; starts again in ${esc(MON[(curM() + 1) % 12])}</span>`
+          : isAuto ? `<span class="sub">counted from the standup log</span>`
           : krStale(o, k, i) ? chip(k.curAt ? 'number ' + Math.floor((Date.now() - k.curAt) / 86400000) + ' days old' : 'never set', 'warn') : ''}
-          ${(p2 => p2 ? chip(fn(p2) + (k.unit ? ' ' + k.unit : '') + ' logged but not marked done', 'warn') : '')(k.type === 'count' ? pendingTotal(o.id, i) : 0)}</div></div>`;
+          ${(p2 => p2 ? chip(fn(p2) + (k.unit ? ' ' + k.unit : '') + ' logged but not marked done', 'warn') : '')(krMeasured(k) ? pendingTotal(o.id, i) : 0)}</div></div>`;
       return `<div class="krwrap"><div class="kr"><div class="t">${esc(k.title)}<div class="sub num">${fmt(wt)}% of this OKR · ${actBtn}</div></div><div class="acts">${due}${status}${mv}${act}</div></div>${valUi}${openK ? actList(acts, e) : ''}</div>`;
     }).join('')}</div></article>`;
 }
@@ -1282,13 +1294,13 @@ function viewOkrs(e) {
     <div style="display:flex;flex-direction:column;gap:8px"><span class="lbl">Key results · ${fmt(100 / n)}% each</span>
     ${draft.krs.map((k, i) => `<div class="krform"><div class="row" style="flex-wrap:nowrap"><span class="num sub" style="min-width:44px;text-align:right">${fmt(100 / n)}%</span>
       <input type="text" class="grow" id="ok-kr-${i}" data-draft="kr" data-i="${i}" value="${esc(k)}" placeholder="Key result ${i + 1}" aria-label="Key result ${i + 1}">
-      ${draft.owner && !draft.owner.startsWith('Company') ? `<select id="ok-km-${i}" data-chg="krmonth" data-i="${i}" aria-label="Due month">${monOpts(draft.ms[i] ?? curM())}</select>` : ''}
+      ${draft.owner && !draft.owner.startsWith('Company') && (draft.kt[i] || 'binary') !== 'monthly' ? `<select id="ok-km-${i}" data-chg="krmonth" data-i="${i}" aria-label="Due month">${monOpts(draft.ms[i] ?? curM())}</select>` : ''}
       <button type="button" class="btn quiet sm" data-act="rmkr" data-i="${i}"${n <= 2 ? ' disabled' : ''} aria-label="Remove key result ${i + 1}">Remove</button></div>
       <div class="row" style="padding-left:52px"><select id="ok-kk-${i}" data-chg="krkind" data-i="${i}" aria-label="How it is measured">${KRTYPE.map(([v, l]) => `<option value="${v}"${(draft.kt[i] || 'binary') === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>
         ${(draft.kt[i] || 'binary') !== 'binary' ? `<input type="number" min="0" step="any" id="ok-ktg-${i}" data-draft="ktg" data-i="${i}" value="${esc(draft.tg[i] || '')}" placeholder="Target" aria-label="Target ${i + 1}" style="width:120px">
         <input type="text" id="ok-kun-${i}" data-draft="kun" data-i="${i}" value="${esc(draft.un[i] || '')}" placeholder="Unit, e.g. guides" aria-label="Unit ${i + 1}" style="width:160px">` : ''}</div></div>`).join('')}</div>
     <div class="row between"><div class="row"><button type="button" class="btn ghost sm" data-act="addkr"${n >= 20 ? ' disabled' : ''}>+ Add key result</button><span class="sub">2 to 20 key results</span></div>
-    <p class="sub" style="flex-basis:100%;margin:0">Counts up adds together every activity you log against it, so it moves on its own. A level is a reading you enter, like a percentage or an NPS, and is never summed. Leave it as done or not done when it is a one-off. ${draft.owner && draft.owner.startsWith('Company') ? 'Company OKRs are annual and stay in place all year.' : 'Plan each key result for a month. You can adjust personal OKRs every month, and changes are approved by the line manager. Make each one specific, measurable, achievable, realistic and time-bound.'}</p>
+    <p class="sub" style="flex-basis:100%;margin:0">A number to reach adds up every activity you log against it until the target is met. A number to reach every month does the same but resets on the first of each month, so there is no deadline and nothing to move. Leave it as done or not done when it is a one-off. ${draft.owner && draft.owner.startsWith('Company') ? 'Company OKRs are annual and stay in place all year.' : 'Plan each key result for a month. You can adjust personal OKRs every month, and changes are approved by the line manager. Make each one specific, measurable, achievable, realistic and time-bound.'}</p>
     <div class="row"><button type="button" class="btn quiet" data-act="newokr">Cancel</button><button class="btn" type="submit">Save OKR</button></div></div></form>` : '';
   return `${pageHead('OKRs', 'Annual goals and their key results. Standing is worked out from the numbers; counting key results read themselves off the standup log.', `<div class="row">${newBtn}${expBtn('okrs')}</div>`)}
   ${e.role === 'member' ? `<div class="banner info"><span>Your line manager sets your OKRs. You can edit them, and ${esc(approverOf({owner: e.name}))} has to approve each change before it takes effect.</span></div>` : ''}
@@ -1315,7 +1327,7 @@ function viewOkrs(e) {
     ${byOwner.length ? byOwner.map(([who, list]) => `<section class="card"><div class="person-h">${avatar(who)}<b class="grow">${dosLink(e, person(who))}</b>
       <span class="sub">${list.filter(r => r.outcome === 'delivered').length} of ${list.length} delivered</span></div>
       <div class="list">${list.map(r => `<div class="kr"><div class="t">${esc(r.k.title)}
-        <div class="sub">${esc(r.o.objective)}${r.outcome === 'moved' ? ' &middot; now due ' + MON[r.k.month] : ''}${r.outcome === 'delivered' && r.k.apBy ? ' &middot; approved by ' + esc(r.k.apBy) : ''}</div></div>
+        <div class="sub">${esc(r.o.objective)}${r.got != null ? ' &middot; ' + fn(r.got) + ' of ' + fn(r.k.target) + (r.k.unit ? ' ' + esc(r.k.unit) : '') : ''}${r.outcome === 'moved' ? ' &middot; now due ' + MON[r.k.month] : ''}${r.outcome === 'delivered' && r.k.apBy && r.got == null ? ' &middot; approved by ' + esc(r.k.apBy) : ''}</div></div>
         ${chip(OUTCOME[r.outcome][0], OUTCOME[r.outcome][1])}</div>`).join('')}</div></section>`).join('')
       : `<div class="card">${empty(rows.length ? 'Nothing matches these filters.' : 'Nothing was planned for ' + MONFULL[hm] + '.')}</div>`}`;
   })(monthRows(e, hm)) : ''}
@@ -2011,7 +2023,7 @@ root.addEventListener('submit', ev => {
     if (!obj || krs.length < 2) return toast('Enter an objective and at least 2 key results.');
     if (pairs.some(x => x.type !== 'binary' && !(+x.target > 0))) return toast('A measured key result needs a target above zero.');
     okrTab = draft.owner.startsWith('Company') ? 'company' : 'personal';
-    add('okrs', {objective: obj, owner: draft.owner.startsWith('Company') ? 'Company' : draft.owner, sub: draft.owner.startsWith('Company:') ? draft.owner.slice(8) : '', year: new Date().getFullYear(), krs: pairs.map(x => ({title: x.t, pct: 0, req: false, reqAt: 0, apBy: '', month: comp ? undefined : x.m, type: x.type, target: x.type === 'binary' ? 0 : +x.target, unit: x.unit, cur: 0}))});
+    add('okrs', {objective: obj, owner: draft.owner.startsWith('Company') ? 'Company' : draft.owner, sub: draft.owner.startsWith('Company:') ? draft.owner.slice(8) : '', year: new Date().getFullYear(), krs: pairs.map(x => ({title: x.t, pct: 0, req: false, reqAt: 0, apBy: '', month: (comp || x.type === 'monthly') ? undefined : x.m, type: x.type, target: x.type === 'binary' ? 0 : +x.target, unit: x.unit, cur: 0}))});
     draft = {owner: draft.owner, obj:'', krs:['',''], ms:[null,null], kt:['binary','binary'], tg:['',''], un:['','']}; showForm = false;
   } else if (f === 'saveedit') {
     const o = editing && S.okrs.find(x => x.id === editing.id); if (!o) { editing = null; return render(); }
