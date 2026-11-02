@@ -401,16 +401,22 @@ const dateShort = t => new Date(t).toLocaleDateString(undefined, {day: 'numeric'
 const OKRST = ['On track', 'At risk', 'Off track'];
 const OKRST_TONE = {'On track': 'good', 'At risk': 'warn', 'Off track': 'bad'};
 
+function okrExpected(o) {
+  const n = o.krs?.length || 0;
+  if (!n || !o.krs.some(k => k.month != null)) return expectedPace();
+  const due = o.krs.filter(k => k.month == null || k.month <= curM()).length;
+  return due / n * 100;
+}
+const personExpected = n => { const a = personOkrs(n); return a.length ? a.reduce((t, o) => t + okrExpected(o), 0) / a.length : expectedPace(); };
 function autoStatus(o) {
-  const exp = expectedPace(), pct = okrPct(o);
+  const exp = okrExpected(o), pct = okrPct(o);
   const ratio = exp ? pct / exp * 100 : 100;
   const late = o.krs.filter(k => overdue(o, k)).length;
   if (ratio + 0.5 < S.cfg.behindAt || late > 1) return 'Off track';
   if (ratio + 0.5 < S.cfg.riskAt || late) return 'At risk';
   return 'On track';
 }
-const okrStatus = o => o.statusBy ? o.status : autoStatus(o);
-const isOverridden = o => !!o.statusBy && o.status !== autoStatus(o);
+const okrStatus = o => autoStatus(o);
 const okrUpdates = o => o.updates || [];
 const lastUpd = o => { const u = okrUpdates(o); return u.length ? u[u.length - 1] : null; };
 const staleDays = o => { const u = lastUpd(o); return u ? Math.floor((Date.now() - u.at) / 86400000) : null; };
@@ -422,14 +428,15 @@ const krRef = x => { if (!x.okr) return null; const o = S.okrs.find(y => y.id ==
 const krOpts = n => S.okrs.filter(o => o.owner === n).flatMap(o => o.krs.map((k, i) => ({v: o.id + '|' + i, l: k.title, g: o.objective})));
 const activityOn = (oid, ki) => S.stand.filter(x => x.okr === oid && x.kr === ki).sort((a, b) => (b.day || b.week).localeCompare(a.day || a.week) || (b.ts || 0) - (a.ts || 0));
 // The work logged against a key result: evidence of effort, not a measure of progress.
-const actLine = x => `<div class="kr"><div class="t">${esc(x.text)}<div class="sub">${esc(x.owner)} · ${esc(dayLabel(x.day || x.week))}${x.n != null ? ' · ' + fmt(x.n) + ' ' + esc(x.unit || '') : ''}</div></div>${chip(x.status, statTone(x.status))}</div>`;
+const actLine = (x, e) => `<div class="kr"><div class="t">${esc(x.text)}<div class="sub">${esc(x.owner)} · ${esc(dayLabel(x.day || x.week))}${x.n != null ? ' · ' + fmt(x.n) + ' ' + esc(x.unit || '') : ''}</div></div>${e && x.owner === e.name ? `<select class="sm" data-chg="stand" data-id="${x.id}" aria-label="Status">${opts(SSTAT, x.status)}</select>` : chip(x.status, statTone(x.status))}</div>`;
 const loggedTotal = (oid, ki) => activityOn(oid, ki).filter(x => x.status === 'Done' && x.n != null).reduce((t, x) => t + (+x.n || 0), 0);
-const hasLog = (oid, ki) => activityOn(oid, ki).some(x => x.status === 'Done' && x.n != null);
+const hasLog = (oid, ki) => activityOn(oid, ki).some(x => x.n != null);
+const pendingTotal = (oid, ki) => activityOn(oid, ki).filter(x => x.status !== 'Done' && x.n != null).reduce((t, x) => t + (+x.n || 0), 0);
 // A counting key result reads itself off the standup log. A reading has nothing to read from,
 // so it stays manual. Either can be overridden by its owner.
 const krAuto = (o, k, i) => k.type === 'count' && hasLog(o.id, i) && k.curManual == null;
 const krCur = (o, k, i) => krAuto(o, k, i) ? loggedTotal(o.id, i) : (k.curManual != null ? +k.curManual : (+k.cur || 0));
-const actList = rows => `<div class="actlog"><div class="list">${rows.map(actLine).join('')}</div></div>`;
+const actList = (rows, e) => `<div class="actlog"><div class="list">${rows.map(x => actLine(x, e)).join('')}</div></div>`;
 const krState = k => k.pct === 100 ? 'approved' : k.req ? 'awaiting' : 'open';
 
 // ---------- workforce analytics ----------
@@ -456,18 +463,17 @@ const lastRating = n => { const done = S.reviews.filter(r => r.owner === n && r.
     .filter(x => x.c).sort((a, b) => b.r.mgr.at - a.r.mgr.at); return done.length ? {rating: done[0].r.mgr.rating, cycle: done[0].c.name, by: done[0].r.mgr.by} : null; };
 function risk(n) {
   const p = person(n); if (!p || isGroup(p)) return null;
-  const mine = personOkrs(n), pct = personPct(n), exp = expectedPace(), sr = standupRate(n), od = overdueFor(n);
+  const mine = personOkrs(n), pct = personPct(n), exp = personExpected(n), sr = standupRate(n), od = overdueFor(n);
   const off = mine.filter(o => okrStatus(o) === 'Off track'), atRisk = mine.filter(o => okrStatus(o) === 'At risk');
   const stale = mine.filter(isStale);
   const said = [], chase = [];
-  off.forEach(o => said.push(`"${o.objective}" is off track${o.statusBy ? ', set by ' + o.statusBy : ''}`));
-  atRisk.forEach(o => said.push(`"${o.objective}" is at risk${o.statusBy ? ', set by ' + o.statusBy : ''}`));
+  off.forEach(o => said.push(`"${o.objective}" is off track`));
+  atRisk.forEach(o => said.push(`"${o.objective}" is at risk`));
   if (!mine.length) chase.push('No OKRs set yet');
   stale.forEach(o => chase.push(`No note on "${o.objective}" since it was ${staleLabel(o)}`));
   if (sr / 25 < S.cfg.standupWeeks) chase.push(`Logged a standup in ${r0(sr / 25)} of the last 4 weeks`);
   if (od) chase.push(plural(od, 'key result is', 'key results are') + ' past their due month');
   // Where a goal is measured, check what the number says against what its owner said.
-  mine.filter(isOverridden).forEach(o => chase.push(`Set "${o.objective}" to ${okrStatus(o).toLowerCase()} by hand; the numbers say ${autoStatus(o).toLowerCase()}`));
   const numStale = mine.reduce((t, o) => t + o.krs.filter((k, i) => krStale(o, k, i)).length, 0);
   if (numStale) chase.push(plural(numStale, 'measured key result has', 'measured key results have') + ' not moved in over ' + S.cfg.staleDays + ' days');
   mine.forEach(o => o.krs.forEach((k, i) => { if (k.type !== 'count' || k.pct === 100 || k.curManual == null) return;
@@ -479,6 +485,7 @@ function risk(n) {
     rating: lastRating(n), ix: exp ? pct / exp * 100 : 0, band};
 }
 const perfIndex = n => { const exp = expectedPace(); return exp ? personPct(n) / exp * 100 : 0; };
+const isAhead = r => r.ix >= S.cfg.aheadAt || (r.pct >= 100 && goalMonth() < 12);
 const BAND = {ok: ['On track', 'good'], watch: ['Needs a nudge', 'acc'], risk: ['At risk', 'warn'], off: ['Off track', 'bad']};
 // ---------- welfare ----------
 // Who does what, and by when, counted in days from the start date.
@@ -618,7 +625,7 @@ function buildMock() {
     ['Ivy Chen', 'Modernise the web client', [['Move to the new design system','a',1], ['Cut bundle size by 30%','r'], ['Reach 90% test coverage','o']]],
     ['Sam Brooks', 'Harden security', [['Roll out single sign-on','a',0], ['Close every critical vulnerability','a',2], ['Complete the SOC 2 audit','o']]]
   ];
-  const okrs = defs.map(([owner, objective, krs, sub], i) => ({id: 'o' + i, owner, sub: sub || '', year: new Date().getFullYear(), objective, status: 'On track', updates: [],
+  const okrs = defs.map(([owner, objective, krs, sub], i) => ({id: 'o' + i, owner, sub: sub || '', year: new Date().getFullYear(), objective, updates: [],
     krs: krs.map(([title, st, w], j) => { const M = new Date().getMonth(), personal = owner !== 'Company';
       const month = !personal ? undefined : st === 'a' ? Math.max(0, M - 1 - (w || 0)) : st === 'r' ? M : (owner === 'Cy Mensah' || title === 'Run 10 experiments') ? Math.max(0, M - 1) : Math.min(11, M + (j % 3));
       return {title, pct: st === 'a' ? 100 : 0, req: st === 'r', reqAt: st === 'r' ? Date.now() - 86400000 : 0, apBy: st === 'a' ? approverOf(owner) : '', apAt: st === 'a' ? Date.now() - (w + 0.5) * 7 * 86400000 : 0, month, w}; })}));
@@ -647,8 +654,27 @@ function buildMock() {
   };
   okrs.forEach(o => o.krs.forEach(k => { const m = MEAS[k.title]; if (m) Object.assign(k, {type: m[0], target: m[1], unit: m[2], cur: m[3], curAt: Date.now() - m[4] * 86400000}); }));
   okrs.forEach(o => { const u = UPD[o.objective]; if (!u || !u[0]) return;
-    o.status = u[0];
     o.updates = [{text: u[2], status: u[0], by: o.owner, at: Date.now() - u[1] * 86400000}];
+  });
+  // Seed progress relative to the pace expected this month, so the sample still
+  // reads sensibly in March or December instead of only in the month it was written.
+  const paceNow = (new Date().getMonth() + 1) / 12;
+  const PACE = {'Maya Singh': 1.18, 'Dee Park': 1.02, 'Leo Vance': 0.96, 'Ben Carter': 0.93,
+    'Sam Brooks': 0.9, 'Eli Ruiz': 0.88, 'Cy Mensah': 0.76, 'Ivy Chen': 0.7, 'Zoe Hart': 0.6, 'Noor Aziz': 0.05};
+  okrs.filter(o => PACE[o.owner] != null).forEach(o => {
+    const want = Math.max(0, Math.min(1, PACE[o.owner] * paceNow)), n = o.krs.length;
+    o.krs.forEach((k, j) => {
+      if (k.type === 'count' || k.type === 'level') { k.cur = Math.round(k.target * want); k.curManual = null; return; }
+      const done = (j + 1) / n <= want + 1e-9;
+      if (done && k.pct !== 100) Object.assign(k, {pct: 100, req: false, apBy: approverOf(o.owner), apAt: Date.now() - (j + 1) * 6 * 86400000, w: Math.min(2, j)});
+      if (!done && k.pct === 100) Object.assign(k, {pct: 0, req: false, apBy: '', apAt: 0});
+    });
+  });
+  // Leave a few requests sitting with their approver so the Approvals page has work in it.
+  [['Cy Mensah', 1], ['Zoe Hart', 1], ['Eli Ruiz', 2], ['Ivy Chen', 1]].forEach(([who, idx]) => {
+    const o = okrs.find(x => x.owner === who); if (!o) return;
+    const k = o.krs[Math.min(idx, o.krs.length - 1)];
+    if (k && k.pct !== 100) Object.assign(k, {req: true, reqAt: Date.now() - 86400000});
   });
   const logs = [];
   okrs.forEach(o => { const n = okrs.filter(x => x.owner === o.owner).length;
@@ -1120,17 +1146,14 @@ function okrCard(o, e) {
   const mine = o.owner !== 'Company' ? o.owner === e.name : isGroup(e);
   const st = okrStatus(o), lu = lastUpd(o), stale = isStale(o);
   const manKrs = o.krs.map((k, i) => ({k, i})).filter(x => krMeasured(x.k) && x.k.pct !== 100 && !krAuto(o, x.k, x.i));
-  const auto = autoStatus(o), over = !!o.statusBy;
   const upd = okrUpd === o.id ? `<form class="ci-form" data-submit="saveupd" style="flex-direction:column;align-items:stretch;gap:10px"><input type="hidden" id="up-id" value="${o.id}">
-    <p class="sub" style="margin:0">The standing is worked out from progress against the ${r0(expectedPace())}% expected by now, and anything past its month. Set it yourself only when you know something the numbers do not.</p>
-    <div class="row"><label class="f" style="flex:none">Standing<select id="up-st"><option value="">Leave it automatic (${esc(auto)})</option>${OKRST.map(x => `<option${over && o.status === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select></label>
-      <label class="f grow" style="flex-basis:260px">Add a note <span class="sub">(optional)</span><input type="text" id="up-text" placeholder="Context the numbers do not show"></label></div>
+    <div class="row"><label class="f grow" style="flex-basis:260px">Add a note <span class="sub">(optional)</span><input type="text" id="up-text" placeholder="Context the numbers do not show"></label></div>
     ${manKrs.length ? `<div style="display:flex;flex-direction:column;gap:6px"><span class="lbl">Numbers nobody can read off the work log</span>
       ${manKrs.map(({k, i}) => `<div class="row" style="flex-wrap:nowrap"><span class="grow" style="min-width:0">${esc(k.title)}</span>
           <input type="number" min="0" step="any" id="up-kr-${i}" value="${esc(String(krCur(o, k, i)))}" aria-label="Current value for ${esc(k.title)}" style="width:120px">
           <span class="sub num" style="white-space:nowrap">of ${fn(k.target)}${k.unit ? ' ' + esc(k.unit) : ''}</span></div>`).join('')}</div>` : ''}
     <div class="row"><button class="btn" type="submit">Save</button><button type="button" class="btn quiet" data-act="cancelupd">Cancel</button></div></form>` : '';
-  return `<article class="card"><div class="okr-h"><div class="grow"><h3>${esc(o.objective)}</h3><div class="sub">${esc(ownerLabel(o))} · ${esc(o.year)} · ${plural(n, 'key result', 'key results')}</div></div><span class="acts">${chip(st, OKRST_TONE[st])}<span class="sub">${over ? 'set by ' + esc(o.statusBy) : 'worked out from the numbers'}</span>${over && mine ? `<button class="linkish" data-act="clearover" data-id="${o.id}">use automatic</button>` : ''}${mine && !upd ? `<button class="btn quiet sm" data-act="openupd" data-id="${o.id}">${manKrs.length ? 'Numbers and notes' : 'Add a note'}</button>` : ''}${editUi}${delUi}</span></div>
+  return `<article class="card"><div class="okr-h"><div class="grow"><h3>${esc(o.objective)}</h3><div class="sub">${esc(ownerLabel(o))} · ${esc(o.year)} · ${plural(n, 'key result', 'key results')}</div></div><span class="acts">${chip(st, OKRST_TONE[st])}<span class="sub">worked out from the numbers</span>${mine && !upd ? `<button class="btn quiet sm" data-act="openupd" data-id="${o.id}">${manKrs.length ? 'Numbers and notes' : 'Add a note'}</button>` : ''}${editUi}${delUi}</span></div>
     ${upd}
     ${lu ? `<div class="sub">${esc(lu.by)}: ${esc(lu.text)}</div>` : ''}
     <div class="prog">${bar(p)}<span class="pc">${r0(p)}%</span></div>
@@ -1151,8 +1174,9 @@ function okrCard(o, e) {
       const meas = krMeasured(k), frac = krFrac(k, o, i), isAuto = krAuto(o, k, i);
       const valUi = !meas ? '' : `<div class="measure">
         <div class="prog">${bar(frac * 100, frac >= 1 ? 'good' : '')}<span class="pc">${r0(frac * 100)}%</span></div>
-        <div class="row" style="gap:8px"><span class="sub num">${esc(krMeasure(o, k, i))}</span>${isAuto ? `<span class="sub">counted from the standup log</span>` : krStale(o, k, i) ? chip(k.curAt ? 'number ' + Math.floor((Date.now() - k.curAt) / 86400000) + ' days old' : 'never set', 'warn') : ''}</div></div>`;
-      return `<div class="krwrap"><div class="kr"><div class="t">${esc(k.title)}<div class="sub num">${fmt(wt)}% of this OKR · ${actBtn}</div></div><div class="acts">${due}${status}${mv}${act}</div></div>${valUi}${openK ? actList(acts) : ''}</div>`;
+        <div class="row" style="gap:8px"><span class="sub num">${esc(krMeasure(o, k, i))}</span>${isAuto ? `<span class="sub">counted from the standup log</span>` : krStale(o, k, i) ? chip(k.curAt ? 'number ' + Math.floor((Date.now() - k.curAt) / 86400000) + ' days old' : 'never set', 'warn') : ''}
+          ${(p2 => p2 ? chip(fn(p2) + (k.unit ? ' ' + k.unit : '') + ' logged but not marked done', 'warn') : '')(k.type === 'count' ? pendingTotal(o.id, i) : 0)}</div></div>`;
+      return `<div class="krwrap"><div class="kr"><div class="t">${esc(k.title)}<div class="sub num">${fmt(wt)}% of this OKR · ${actBtn}</div></div><div class="acts">${due}${status}${mv}${act}</div></div>${valUi}${openK ? actList(acts, e) : ''}</div>`;
     }).join('')}</div></article>`;
 }
 function viewOkrs(e) {
@@ -1391,19 +1415,19 @@ function viewPerf(e) {
   const noOkrs = all.filter(r => r.noOkrs), staleN = all.filter(r => r.stale).length;
   const top = [...all].sort((a, b) => b.ix - a.ix).slice(0, 5).map(r => r.n);
   const rows = all.filter(r => (perfTab === 'all' || (perfTab === 'top' ? top.includes(r.n) : r.band === perfTab)) && (!f.team || r.p.team === f.team) && (!q || r.n.toLowerCase().includes(q) || (r.p.title || '').toLowerCase().includes(q)))
-    .sort((a, b) => perfTab === 'top' ? b.ix - a.ix : ({off: 0, risk: 1, watch: 2, ok: 3})[a.band] - ({off: 0, risk: 1, watch: 2, ok: 3})[b.band] || a.pct - b.pct);
+    .sort((a, b) => perfTab === 'top' ? (b.ix - a.ix) || (b.pct - a.pct) : ({off: 0, risk: 1, watch: 2, ok: 3})[a.band] - ({off: 0, risk: 1, watch: 2, ok: 3})[b.band] || a.pct - b.pct);
   const segs = [['all', 'Everyone', all.length], ['off', 'Off track', counts.off], ['risk', 'At risk', counts.risk], ['watch', 'Needs a nudge', counts.watch], ['top', 'Top five', Math.min(5, all.length)]];
   return `${pageHead('Performance signals', 'Where each person stands, worked out from their numbers, and what needs chasing. Only managers, HR and the CEO see this. Ratings come from the review cycle, not from this page.', expBtn('perf'))}
   <div class="stats">
     ${stat('ros', 'Behind or at risk', counts.off + counts.risk, counts.off + counts.risk ? 'Worked out from progress against the expected pace' : 'Nobody is behind', null, 'perf')}
     ${stat('amb', 'No word from the owner', staleN, `Goals with no note in over ${S.cfg.staleDays} days`, null, 'perf')}
     ${stat('tea', 'On track', counts.ok, 'Current and no flags raised', null, 'perf')}
-    ${stat('vio', 'Ahead of plan', all.filter(r => r.ix >= S.cfg.aheadAt).length, `Past the ${r0(expectedPace())}% expected by month ${goalMonth()} of 12`, null, 'perf')}</div>
+    ${stat('vio', 'Ahead of plan', all.filter(isAhead).length, `Past the ${r0(expectedPace())}% expected by month ${goalMonth()} of 12, or already finished`, null, 'perf')}</div>
   ${noOkrs.length ? `<div class="banner"><span>${plural(noOkrs.length, 'person has', 'people have')} no OKRs set: ${esc(noOkrs.map(r => r.n).join(', '))}. That is their manager's to fix, not a performance flag.</span></div>` : ''}
   <div class="seg" role="tablist" aria-label="Performance band">${segs.map(([v, l, c]) => `<button role="tab" aria-selected="${perfTab === v}" data-act="perftab" data-v="${v}">${l}<span class="seg-n">${c}</span></button>`).join('')}</div>
   ${all.length > 1 ? fbar('perf', {ph: 'Search by name or job title', team: teamsIn(all.map(r => r.n)), count: `Showing ${rows.length} of ${all.length}`}) : ''}
   <div class="card">${rows.length ? `<div class="list">${rows.map(r => `<div class="prow">
-    <div class="person-h grow">${avatar(r.n)}<div style="min-width:0"><div><b>${dosLink(e, r.p)}</b> ${chip(BAND[r.band][0], BAND[r.band][1])}${r.ix >= S.cfg.aheadAt ? chip('Ahead of plan', 'vio') : ''}${r.band === 'ok' && r.ix >= S.cfg.aheadAt && dueReview(r.p) ? chip('Review due', 'acc') : ''}</div>
+    <div class="person-h grow">${avatar(r.n)}<div style="min-width:0"><div><b>${dosLink(e, r.p)}</b> ${chip(BAND[r.band][0], BAND[r.band][1])}${isAhead(r) ? chip('Ahead of plan', 'vio') : ''}${r.band === 'ok' && r.ix >= S.cfg.aheadAt && dueReview(r.p) ? chip('Review due', 'acc') : ''}</div>
       <div class="sub">${esc(r.p.title || ROLES[r.p.role])} · ${esc(where(r.p))}</div>
       ${r.said.length ? `<div class="flagset"><span class="lbl">Standing</span><ul class="flags said">${r.said.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
       ${r.chase.length ? `<div class="flagset"><span class="lbl">Needs chasing</span><ul class="flags">${r.chase.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
@@ -1782,7 +1806,6 @@ root.addEventListener('click', ev => {
     if (l && lbScope(e).has(l.owner) && l.owner !== e.name) { l.status = a === 'apleave' ? 'Approved' : 'Declined'; l.apBy = e.name; commit(); toast(a === 'apleave' ? 'Leave approved.' : 'Leave declined.'); } }
   else if (a === 'clearhr') { const p = S.people.find(x => x.id === dossier); if (p && isGroup(e)) { delete p.hrnote; commit(); toast('Cleared.'); } }
   else if (a === 'openupd') { okrUpd = id; editing = null; }
-  else if (a === 'clearover') { const o = S.okrs.find(x => x.id === id); if (o && (o.owner === e.name || (o.owner === 'Company' && e.role === 'ceo'))) { o.statusBy = ''; o.status = autoStatus(o); commit(); toast('Back to the automatic standing.'); } }
   else if (a === 'krlog') { const key = b.dataset.o + '|' + i; krOpen = krOpen === key ? null : key; }
   else if (a === 'cancelupd') okrUpd = null;
   else if (a === 'canceledit') editing = null;
@@ -1859,15 +1882,14 @@ root.addEventListener('submit', ev => {
     const o = S.okrs.find(x => x.id === val('up-id')); if (!o) return;
     const mine = o.owner !== 'Company' ? o.owner === e.name : isGroup(e);
     if (!mine) return toast('Only the owner can update a goal.');
-    const text = val('up-text').trim(), pick = val('up-st');
+    const text = val('up-text').trim();
     let moved = 0;
     o.krs.forEach((k, i) => { const el = document.getElementById('up-kr-' + i); if (!el) return;
       const v = parseFloat(el.value); if (!(v >= 0) || v === krCur(o, k, i)) return;
       k.curManual = v; k.cur = v; k.curAt = Date.now(); moved++; });
-    if (pick) { o.status = pick; o.statusBy = e.name; } else { o.statusBy = ''; o.status = autoStatus(o); }
     if (text) o.updates = [...okrUpdates(o), {text, status: okrStatus(o), by: e.name, at: Date.now()}];
     okrUpd = null; commit();
-    toast(!text && !moved && !pick ? 'Nothing to save.' : moved ? `Saved, ${plural(moved, 'number', 'numbers')} updated.` : 'Saved.'); return;
+    toast(!text && !moved ? 'Nothing to save.' : moved ? `Saved, ${plural(moved, 'number', 'numbers')} updated.` : 'Note added.'); return;
   } else if (f === 'savetmpl') {
     if (!tdraft || !isGroup(e)) return;
     readTmpl();
