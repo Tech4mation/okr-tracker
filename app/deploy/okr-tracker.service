@@ -1,0 +1,27 @@
+# systemd unit for running the tracker with plain Node. Install steps are in README.md.
+[Unit]
+Description=Team OKR Tracker
+After=network.target
+
+[Service]
+Type=simple
+User=okr
+Group=okr
+WorkingDirectory=/opt/okr-tracker/app
+Environment=PORT=3000
+Environment=PUBLIC_URL=https://okr.example.com
+Environment=TRUST_PROXY=true
+Environment=TZ=Africa/Lagos
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning server.js
+Restart=on-failure
+RestartSec=3
+
+# Lock the service down: it only needs to write its own data folder.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/okr-tracker/app/data
+
+[Install]
+WantedBy=multi-user.target

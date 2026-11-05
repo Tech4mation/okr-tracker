@@ -1,0 +1,16 @@
+services:
+  okr-tracker:
+    build: .
+    restart: unless-stopped
+    # Only reachable from the server itself; put nginx (deploy/nginx.conf) in front for HTTPS.
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      PUBLIC_URL: https://okr.example.com   # the address people will use
+      TRUST_PROXY: "true"                   # behind nginx
+      TZ: Africa/Lagos                      # weeks start on Monday in this timezone
+    volumes:
+      - okr-data:/data
+
+volumes:
+  okr-data:
