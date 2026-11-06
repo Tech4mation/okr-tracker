@@ -363,11 +363,11 @@ export function createActions(M, hooks) {
       const modes = {}; Object.keys(ALERTS).forEach(k => { modes[k] = oneOf(m.modes?.[k] ?? old.mail.modes[k], ALERT_MODES.map(x => x[0]), 'email timing'); });
       const next = {subs, etypes, closeWhy, onbWho,
         leave: leaveTypes.map((type, i) => ({type, days: int(lt[i]?.days ?? 0, 0, 365, `Days for ${type}`)})),
-        cur: str(c.cur, 3, 'The money symbol') || old.cur, reqMgr: c.reqMgr ? 1 : 0, reqExec: c.reqExec ? 1 : 0,
+        cur: str(c.cur, 3, 'The money symbol') || old.cur, reqMgr: c.reqMgr ? 1 : 0, execAll: c.execAll ? 1 : 0,
         yearStart: int(c.yearStart, 0, 11, 'The goal year start'), staleDays: int(c.staleDays, 1, 365, 'The chasing window'),
         riskAt: int(c.riskAt, 1, 200, 'The at-risk line'), behindAt: int(c.behindAt, 1, 100, 'The off-track line'), aheadAt: int(c.aheadAt, 100, 500, 'The ahead line'),
         standupWeeks: int(c.standupWeeks, 0, 4, 'Expected standups'), enpsDays: int(c.enpsDays, 7, 365, 'The recommend-question interval'),
-        reviewDueDays: int(c.reviewDueDays, 1, 180, 'The self-review window'), execAt: int(c.execAt, 0, 1e12, 'The exec threshold'),
+        reviewDueDays: int(c.reviewDueDays, 1, 180, 'The self-review window'),
         mail: {fromName: str(m.fromName, 80, 'The sender name', false) || 'Team OKR Tracker', replyTo: email(m.replyTo, false),
           digestHour: int(m.digestHour ?? old.mail.digestHour, 0, 23, 'The daily email hour'), modes}};
       if (next.behindAt > next.riskAt) no('The off-track line has to be at or below the at-risk line.');
@@ -378,7 +378,7 @@ export function createActions(M, hooks) {
     'cfg.reset'(e) {
       group(e);
       const d = CFG0();
-      ['yearStart', 'staleDays', 'riskAt', 'behindAt', 'aheadAt', 'standupWeeks', 'enpsDays', 'reviewDueDays', 'reqMgr', 'reqExec', 'execAt', 'cur', 'mail'].forEach(k => { S.cfg[k] = d[k]; });
+      ['yearStart', 'staleDays', 'riskAt', 'behindAt', 'aheadAt', 'standupWeeks', 'enpsDays', 'reviewDueDays', 'reqMgr', 'execAll', 'cur', 'mail'].forEach(k => { S.cfg[k] = d[k]; });
       return 'Policy numbers and email settings are back to the defaults. Your lists are unchanged.';
     },
 
@@ -495,15 +495,14 @@ export function createActions(M, hooks) {
       if (old && (!M.raisedBy(e, old) || !M.sentBack(old))) no('That request is not yours to resend.');
       const title = str(a.title, 100, 'The job title'), team = str(a.team, 60, 'The team');
       const why = str(a.why, 2000, 'The case for it');
-      const pmin = a.payMin === '' || a.payMin == null ? 0 : num(a.payMin, 0, 1e12, 'Pay from'), pmax = a.payMax === '' || a.payMax == null ? 0 : num(a.payMax, 0, 1e12, 'Pay to');
-      if (pmin && pmax && pmax < pmin) no('The top of the pay band cannot be below the bottom.');
-      const n = int(a.count || 1, 1, 99, 'Openings'), bud = a.budgeted ? 1 : 0;
+      const n = int(a.count || 1, 1, 99, 'Openings');
       let hm = e.name;
       if (M.isGroup(e)) { const p = personByName(a.hm); if (p.role !== 'manager' && p.role !== 'ceo') no('The hiring manager must be a manager or the CEO.'); hm = p.name; }
+      // Role requests deliberately carry no pay band, cost centre or budget flag.
       const d = {title, team, sub: oneOf(a.sub, S.cfg.subs, 'subsidiary'), hm, count: n, kind: oneOf(a.kind, RKIND, 'reason for hire'), replacing: str(a.replacing, 80, 'Replacing', false),
-        etype: oneOf(a.etype, S.cfg.etypes, 'contract type'), payMin: pmin, payMax: pmax, cost: str(a.cost, 40, 'The cost centre', false), budgeted: bud, why, needBy: date(a.needBy, 'Needed by', false)};
+        etype: oneOf(a.etype, S.cfg.etypes, 'contract type'), why, needBy: date(a.needBy, 'Needed by', false)};
       const r = old || {id: uuid(), ref: M.reqRef(), reqBy: e.name, recruiter: '', hires: [], closed: [], log: [], apBy: '', apAt: 0, opened: '', note: '', jd: []};
-      Object.assign(r, d, {status: 'In approval', reqAt: now(), note: '', chain: M.chainFor(e.name, bud, pmax * n)});
+      Object.assign(r, d, {status: 'In approval', reqAt: now(), note: '', chain: M.chainFor(e.name)});
       M.logReq(r, e.name, old ? 'Fixed and resent the request' : 'Raised the request');
       M.settleOwn(r, e.name);
       if (!old) S.roles.push(r);

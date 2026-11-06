@@ -31,12 +31,13 @@ export function viewFor(M, e) {
     welfare: S.welfare.filter(x => (mine(x.owner) || group || (mgr && team.has(x.owner))) && recent(x)),
     leave: S.leave.filter(x => mine(x.owner) || group || (mgr && team.has(x.owner))),
     cycles: S.cycles,
-    roles: S.roles.filter(r => M.roleVisible(e, r)),
+    // Members have no part in hiring or onboarding, so they receive neither.
+    roles: e.role === 'member' ? [] : S.roles.filter(r => M.roleVisible(e, r)),
     ones: S.ones.filter(x => mine(x.owner) || mine(x.with) || group || above(x.with)),
     fb: S.fb.filter(x => mine(x.to) || mine(x.from) || group || above(x.to)),
     docs: S.docs.filter(x => mine(x.owner) || group || above(x.owner)),
     surveys: S.surveys,
-    onb: S.onb.filter(x => mine(x.owner) || group || (mgr && team.has(x.owner))),
+    onb: S.onb.filter(x => group || (mgr && team.has(x.owner) && x.owner !== e.name)),
     tmpl: group ? S.tmpl : [],
     // The leaderboard needs teammates' standing, not their goals: send the figure, not the records.
     board: Object.fromEntries([...board].map(n => [n, {pct: M.personPct(n)}])),

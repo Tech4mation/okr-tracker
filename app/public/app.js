@@ -11,7 +11,7 @@ const {S, isGroup, where, ownerLabel, cv, person, mgrOf, reportsTo, directs, sco
   gain, isMonthly, krMeasured, krFrac, krMeasure, okrPct, personOkrs, personPct, companyPct, isPersonal, overdue, goalMonth, expectedPace,
   okrStatus, monthRows, appraise, lastUpd, isStale, krStale, krRef, krOpts, activityOn, latestLogged, pendingTotal,
   krAuto, krCur, krState, pastWeeks, standupRate, overdueFor, approvedFor, krCount, jdCoverage, risk, isAhead,
-  tmplFor, onbFor, onbPct, onbDue, onbLate, onbActive, onbCanTick, money, payBand, hiresOf, closedOf, openings, toFill, annualCost, roleLive, inAppr,
+  tmplFor, onbFor, onbPct, onbDue, onbLate, onbActive, onbCanTick, money, hiresOf, closedOf, openings, toFill, roleLive, inAppr,
   sentBack, roleShut, canRole, raisedBy, chainOf, stepNow, stepNo, canStep, stepLabel, chainFor, myAppr, openRoles, askedRoles, apprDays, avgNum,
   daysOpen, docsFor, onesFor, fbFor, dueReview, surveyFor, recipients, welfareOf, responded, outstanding, surveyDue, enpsAsked, enpsScore,
   welfareFlag, liveCycle, revOf, revStage, revDone, revSeen, myRevToSign, revDue, leaveFor, leaveAllow, leaveBal, leavePending,
@@ -140,10 +140,10 @@ function buildCsv(kind, e) {
       r.self?.rating ?? '', r.self?.text ?? '', r.mgr?.by ?? '', r.mgr?.rating ?? '', r.mgr?.text ?? '',
       r.shared ? d(r.shared.at) : '', r.ack ? d(r.ack.at) : '', r.ack?.text ?? ''])]);
   if (kind === 'hire') return toCsv([['Reference', 'Role', 'Subsidiary', 'Team', 'Hiring manager', 'Recruiter', 'Status', 'Openings', 'Filled', 'Closed unfilled',
-      'Reason for hire', 'Replacing', 'Contract', 'Pay from', 'Pay to', 'Cost centre', 'In plan', 'Asked for by', 'Asked on', 'Needed by',
+      'Reason for hire', 'Replacing', 'Contract', 'Asked for by', 'Asked on', 'Needed by',
       'Approval chain', 'Decided by', 'Opened', 'Days to approve', 'Days open', 'Filled by', 'Note'],
     ...openRoles(e).map(r => [r.ref || '', r.title, r.sub, r.team, r.hm, r.recruiter || '', r.status, openings(r), hiresOf(r).length, closedOf(r).length,
-      r.kind || '', r.replacing || '', r.etype || '', r.payMin || '', r.payMax || '', r.cost || '', r.budgeted ? 'Yes' : 'No',
+      r.kind || '', r.replacing || '', r.etype || '',
       r.reqBy || '', r.reqAt ? d(r.reqAt) : '', r.needBy || '',
       chainOf(r).map(x => (x.role === 'HR' ? 'HR' : x.who) + ': ' + x.state).join('; '),
       r.apBy || '', r.opened || '', apprDays(r) ?? '', r.opened ? daysOpen(r) : '',
@@ -178,8 +178,8 @@ function readCfg() {
   c.etypes = c.etypes.map((x, i) => g('cf-et-' + i) ? g('cf-et-' + i).value.trim() : x);
   c.closeWhy = c.closeWhy.map((x, i) => g('cf-cw-' + i) ? g('cf-cw-' + i).value.trim() : x);
   c.cur = g('cf-cur').value.trim() || c.cur;
-  c.reqMgr = +g('cf-rm').value ? 1 : 0; c.reqExec = +g('cf-re').value ? 1 : 0;
-  ['yearStart:cf-ys', 'staleDays:cf-stale', 'riskAt:cf-risk', 'behindAt:cf-behind', 'aheadAt:cf-ahead', 'standupWeeks:cf-su', 'enpsDays:cf-enps', 'reviewDueDays:cf-rev', 'execAt:cf-ea']
+  c.reqMgr = +g('cf-rm').value ? 1 : 0; c.execAll = +g('cf-re').value ? 1 : 0;
+  ['yearStart:cf-ys', 'staleDays:cf-stale', 'riskAt:cf-risk', 'behindAt:cf-behind', 'aheadAt:cf-ahead', 'standupWeeks:cf-su', 'enpsDays:cf-enps', 'reviewDueDays:cf-rev']
     .forEach(x => { const [k, id] = x.split(':'); const v = Math.round(+g(id).value); if (!isNaN(v)) c[k] = v; });
   c.mail.fromName = g('cf-mfrom').value.trim(); c.mail.replyTo = g('cf-mreply').value.trim(); c.mail.digestHour = +g('cf-mhour').value;
   Object.keys(ALERTS).forEach(k => { if (g('cf-mm-' + k)) c.mail.modes[k] = g('cf-mm-' + k).value; });
@@ -532,14 +532,14 @@ function viewReview(e) {
 // The requisition form, used both to raise one and to fix one that was sent back.
 function reqForm(e, r) {
   const me = person(e.name) || {}, mine = isGroup(e);
-  const d = r || {sub: me.sub || subs()[0], team: me.team || '', count: 1, kind: RKIND[0], etype: S.cfg.etypes[0], budgeted: 1,
-    needBy: iso(new Date(Date.now() + 60 * 86400000)), payMin: '', payMax: '', cost: '', replacing: '', why: '', title: '', hm: ''};
-  const chain = chainFor(e.name, d.budgeted, (+d.payMax || 0) * Math.max(1, +d.count || 1));
+  const d = r || {sub: me.sub || subs()[0], team: me.team || '', count: 1, kind: RKIND[0], etype: S.cfg.etypes[0],
+    needBy: iso(new Date(Date.now() + 60 * 86400000)), replacing: '', why: '', title: '', hm: ''};
+  const chain = chainFor(e.name);
   const left = chain.filter(st => st.state === 'Pending' && !(st.who === e.name || (st.role === 'HR' && e.role === 'hr')));
   return `<form class="card" data-submit="addrole">${r ? `<input type="hidden" id="ro-id" value="${r.id}">` : ''}
     <div class="sec-h"><h2 style="font-size:16px">${r ? 'Fix and resend ' + esc(r.ref || 'the request') : 'New role request'}</h2>${r ? chip('Sent back', 'amb') : ''}</div>
     <p class="sub" style="margin:0">${r ? 'Change what was flagged and it goes back through approval from the start.'
-      : left.length ? 'This needs ' + esc(left.map(stepLabel).join(', then ')) + ' to approve it. Exec sign-off is added on its own when a role is outside the plan or over ' + esc(money(S.cfg.execAt)) + ' a year.'
+      : left.length ? 'This needs ' + esc(left.map(stepLabel).join(', then ')) + ' to approve it.'
       : 'You are the only approver this needs, so it opens straight away.'}</p>
     <div class="row"><label class="f grow" style="flex-basis:220px">Job title<input type="text" id="ro-title" value="${esc(d.title || '')}" placeholder="e.g. Support Engineer" maxlength="100"></label>
       <label class="f">Subsidiary<select id="ro-sub">${subs().map(x => `<option${d.sub === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select></label>
@@ -550,10 +550,6 @@ function reqForm(e, r) {
       <label class="f">Contract<select id="ro-et">${S.cfg.etypes.map(x => `<option${d.etype === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select></label>
       <label class="f">Openings<input type="number" id="ro-n" value="${esc(String(d.count || 1))}" min="1" max="99" style="width:90px"></label>
       <label class="f">Needed by<input type="date" id="ro-by" value="${esc(d.needBy || '')}"></label></div>
-    <div class="row"><label class="f">Pay from<input type="number" id="ro-pmin" value="${esc(String(d.payMin || ''))}" min="0" step="1000" placeholder="0" style="width:140px"><span class="sub">${esc(S.cfg.cur)} a year</span></label>
-      <label class="f">Pay to<input type="number" id="ro-pmax" value="${esc(String(d.payMax || ''))}" min="0" step="1000" placeholder="0" style="width:140px"><span class="sub">${esc(S.cfg.cur)} a year</span></label>
-      <label class="f grow" style="flex-basis:160px">Cost centre<input type="text" id="ro-cc" value="${esc(d.cost || '')}" placeholder="e.g. NT-GRW-01" maxlength="40"></label>
-      <label class="f">In this year's plan<select id="ro-bud"><option value="1"${d.budgeted ? ' selected' : ''}>Yes, budgeted</option><option value="0"${d.budgeted ? '' : ' selected'}>No, extra headcount</option></select><span class="sub">Extra headcount needs exec sign-off</span></label></div>
     <label class="f">The case for it<textarea id="ro-why" rows="2" placeholder="What is not getting done without this person" maxlength="2000">${esc(d.why || '')}</textarea></label>
     <div class="row"><button class="btn" type="submit">${r ? 'Resend for approval' : left.length ? 'Send for approval' : 'Open role'}</button><button type="button" class="btn quiet" data-act="cancelrole">Cancel</button></div></form>`;
 }
@@ -570,7 +566,7 @@ function viewHire(e) {
   const seats = live.reduce((t, r) => t + toFill(r), 0);
   const avgFill = avgNum(all.filter(r => r.status === 'Filled' && r.opened && r.filledAt).map(daysOpen));
   const avgAp = avgNum(all.map(apprDays).filter(x => x != null));
-  const mineOnb = onbActive().filter(o => isGroup(e) || o.owner === e.name || (person(o.owner) && mgrOf(person(o.owner)) && mgrOf(person(o.owner)).id === e.id));
+  const mineOnb = onbActive().filter(o => isGroup(e) || (person(o.owner) && mgrOf(person(o.owner)) && mgrOf(person(o.owner)).id === e.id));
   const canAsk = ['manager', 'ceo', 'hr'].includes(e.role);
   const segs = [...(waiting.length || canAsk ? [['appr', onMe.length ? 'Waiting on you' : 'In approval', onMe.length || waiting.length]] : []),
     (h => ['open', h ? 'Open or on hold' : 'Open roles', live.length + h])(held.length),
@@ -579,7 +575,7 @@ function viewHire(e) {
   if (!segs.some(x => x[0] === hireTab)) hireTab = segs.some(x => x[0] === 'onb') && !canAsk ? 'onb' : 'open';
   const ed = editR ? all.find(r => r.id === editR) : null;
   return `${pageHead('Hiring and onboarding', isGroup(e)
-      ? 'Every role starts as a request with a reference, a pay band and a cost centre, and goes through line manager, HR and exec sign-off before it opens. It closes when its openings are filled.'
+      ? 'Every role starts as a request with a reference and the case for it, and goes through the line manager and HR' + (S.cfg.execAll ? ', then the CEO,' : '') + ' before it opens. It closes when its openings are filled.'
       : canAsk ? 'Raise a role when your team needs one. It goes through approval, you see every step, and it closes itself once you have hired.' : 'Your onboarding checklist.',
     `<div class="row">${canAsk ? '<button class="btn" data-act="newrole">+ New role request</button>' : ''}${canAsk ? expBtn('hire') : ''}</div>`)}
   ${hireTab === 'onb' || hireTab === 'tmpl' ? '' : `<div class="stats">${stat('ind', 'Open roles', live.length, 'Approved and actively hiring', null, 'hire')}
@@ -610,7 +606,7 @@ function viewHire(e) {
     return `<section class="card"><div class="person-h">${avatar(o.owner)}<div class="grow" style="min-width:0"><div><b>${dosLink(e, p, o.owner)}</b> ${chip(r0(onbPct(o)) + '% done', onbPct(o) >= 100 ? 'good' : '')}${late ? chip(plural(late, 'task overdue', 'tasks overdue'), 'bad') : ''}</div>
       <div class="sub">${esc(p?.title || '')}${p?.sub ? ' · ' + esc(where(p)) : ''} · started ${esc(parseIso(o.start).toLocaleDateString(undefined, {day: 'numeric', month: 'long'}))}${o.from ? ' · ' + esc(o.from) : ''}</div></div></div>
     ${bar(onbPct(o))}
-    <div class="list">${o.tasks.map((t, i) => ({t, i})).filter(({t}) => o.owner !== e.name || isGroup(e) || t.who === 'New hire').sort((a, b) => a.t.off - b.t.off).map(({t, i}) => `<div class="kr"><div class="t">${t.done ? `<s>${esc(t.t)}</s>` : esc(t.t)}
+    <div class="list">${o.tasks.map((t, i) => ({t, i})).sort((a, b) => a.t.off - b.t.off).map(({t, i}) => `<div class="kr"><div class="t">${t.done ? `<s>${esc(t.t)}</s>` : esc(t.t)}
       <div class="sub">${esc(t.who)} · due ${esc(onbDue(o, t).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}))}${t.done ? ' · done by ' + esc(t.by) : onbLate(o, t) ? ' · overdue' : ''}</div></div>
       <div class="acts">${t.done ? chip('Done', 'good') : onbLate(o, t) ? chip('Overdue', 'bad') : chip('To do')}
         ${onbCanTick(e, o, t) ? `<button class="btn ${t.done ? 'quiet' : 'ghost'} sm" data-act="onbtick" data-n="${esc(o.owner)}" data-i="${i}">${t.done ? 'Undo' : 'Mark done'}</button>` : ''}</div></div>`).join('')}</div></section>`; }).join('')
@@ -625,15 +621,12 @@ function viewHire(e) {
     if (r.status === 'On hold' && can) a.push(`<button class="btn quiet sm" data-act="reopenrole" data-id="${r.id}">Reopen</button>`);
     if ((roleLive(r) || r.status === 'On hold') && can && left) a.push(`<button class="btn quiet sm" data-act="closerole" data-id="${r.id}">Close ${left > 1 ? 'the openings' : 'it'}</button>`);
     if ((inAppr(r) || sentBack(r)) && raisedBy(e, r)) a.push(`<button class="btn quiet sm" data-act="withdrawrole" data-id="${r.id}">Withdraw</button>`);
-    const money2 = payBand(r);
     return `<section class="card"><div class="sec-h"><h2>${esc(r.title)}</h2><div class="person-h">${r.ref ? chip(r.ref) : ''}${chip(r.status, RTONE[r.status] ?? '')}${openings(r) > 1 ? chip(`${hs.length} of ${openings(r)} filled`, left ? 'warn' : 'good') : ''}${roleLive(r) && r.opened ? chip('open ' + plural(daysOpen(r), 'day', 'days'), daysOpen(r) > 60 ? 'warn' : '') : ''}${a.join('')}</div></div>
     <p class="sub" style="margin:-4px 0 4px">${esc(r.team)} · ${esc(r.sub)} · hiring manager ${esc(r.hm)}${r.recruiter ? ' · recruiter ' + esc(r.recruiter) : ''}${openings(r) > 1 ? ' · ' + plural(openings(r), 'opening', 'openings') : ''}</p>
     <div class="list">
       <div class="kr"><div class="t">Asked for by ${esc(r.reqBy || r.hm)}${r.reqAt ? ' on ' + esc(dateShort(r.reqAt)) : ''}
         <div class="sub">${esc(r.kind || 'New headcount')}${r.replacing ? ' for ' + esc(r.replacing) : ''}${r.etype ? ' · ' + esc(r.etype) : ''}${r.needBy ? ' · needed by ' + esc(parseIso(r.needBy).toLocaleDateString(undefined, {day: 'numeric', month: 'long'})) : ''}</div>
         ${r.why ? `<div>${esc(r.why)}</div>` : ''}</div></div>
-      ${money2 || r.cost || r.budgeted != null ? `<div class="kr"><div class="t">${esc(money2 || 'No pay band given')}
-        <div class="sub">${r.cost ? 'Cost centre ' + esc(r.cost) : 'No cost centre'} · ${r.budgeted ? 'in this year plan' : 'extra headcount, outside the plan'}${annualCost(r) ? ' · up to ' + esc(money(annualCost(r))) + ' a year for ' + plural(openings(r), 'opening', 'openings') : ''}</div></div></div>` : ''}
       ${chainOf(r).length ? `<div class="kr"><div class="t">Approval${inAppr(r) ? ` · step ${stepNo(r)} of ${chainOf(r).length}` : ''}
         <div class="sub">${chainOf(r).map(x => `${esc(x.who || x.role)}: ${esc(x.state === 'Pending' ? 'waiting' : x.state.toLowerCase())}${x.at ? ' ' + esc(dateShort(x.at)) : ''}`).join(' · ')}</div>
         ${(x => x && x.note ? `<div>${esc(x.note)}</div>` : '')(chainOf(r).filter(x => x.note && x.state !== 'Approved').pop())}</div>
@@ -1015,10 +1008,9 @@ function viewSet(e) {
   <section class="card"><div class="sec-h"><h2>Hiring approvals</h2></div>
     <p class="sub" style="margin:0">Every role request runs through these steps in order. A step the person asking already sits on clears itself.</p>
     <div class="row" style="align-items:flex-start">
-      <label class="f"><span>Money is shown in</span><input type="text" id="cf-cur" value="${esc(c.cur)}" maxlength="3" style="width:80px"><span class="sub">symbol used on pay bands</span></label>
+      <label class="f"><span>Money is shown in</span><input type="text" id="cf-cur" value="${esc(c.cur)}" maxlength="3" style="width:80px"><span class="sub">symbol used for salaries</span></label>
       <label class="f"><span>Line manager approves first</span><select id="cf-rm"><option value="1"${c.reqMgr ? ' selected' : ''}>Yes</option><option value="0"${c.reqMgr ? '' : ' selected'}>No, straight to HR</option></select></label>
-      <label class="f"><span>Exec signs off as well</span><select id="cf-re"><option value="1"${c.reqExec ? ' selected' : ''}>When outside the plan or over the threshold</option><option value="0"${c.reqExec ? '' : ' selected'}>Never</option></select></label>
-      ${num('cf-ea', 'Exec threshold, total a year', c.execAt, c.cur + ' across all openings on the role')}</div></section>
+      <label class="f"><span>The CEO signs off as well</span><select id="cf-re"><option value="0"${c.execAll ? '' : ' selected'}>No</option><option value="1"${c.execAll ? ' selected' : ''}>Yes, after HR</option></select></label></div></section>
 
   <section class="card"><div class="sec-h"><h2>Contract types</h2></div>
     <div class="list">${c.etypes.map((x, i) => `<div class="kr"><div class="t"><input type="text" id="cf-et-${i}" value="${esc(x)}" aria-label="Contract type ${i + 1}" maxlength="40"></div>
@@ -1033,7 +1025,7 @@ function viewSet(e) {
   <section class="card"><div class="sec-h"><h2>Onboarding task owners</h2></div>
     <div class="list">${c.onbWho.map((x, i) => `<div class="kr"><div class="t"><input type="text" id="cf-ow-${i}" value="${esc(x)}" aria-label="Owner ${i + 1}" maxlength="40"></div>
       <div class="acts">${c.onbWho.length > 1 && !(was('onbWho', i) && S.tmpl.some(t => t.tasks.some(k => k.who === was('onbWho', i)))) ? `<button class="btn quiet sm" data-act="rmcfg" data-k="onbWho" data-i="${i}">Remove</button>` : '<span class="sub">in use</span>'}</div></div>`).join('')}</div>
-    <div class="row"><button class="btn ghost sm" data-act="addcfg" data-k="onbWho">+ Add owner</button><span class="sub">Who a checklist task can be assigned to. "New hire" means the starter themselves. Only HR, Manager and New hire can tick tasks.</span></div></section>
+    <div class="row"><button class="btn ghost sm" data-act="addcfg" data-k="onbWho">+ Add owner</button><span class="sub">Who a checklist task can be assigned to. The new starter never has tasks: their line manager ticks Manager tasks, and HR ticks the rest.</span></div></section>
 
   <section class="card"><div class="sec-h"><h2>Email alerts</h2>${mr ? chip(mr.configured ? 'Email is set up' : 'Email is not set up', mr.configured ? 'good' : 'warn') : ''}</div>
     <p class="sub" style="margin:0">Every alert shows in the app. Choose which also go by email straight away, which wait for the one daily email, and which stay in the app only. Emails never contain a rating, a pay figure or review text.</p>
@@ -1073,7 +1065,7 @@ function viewPeople(e) {
   const tabs = `<div class="seg" role="tablist" aria-label="Directory view">${[['table', 'Table'], ['org', 'Org chart']].map(([v, l]) =>
     `<button role="tab" aria-selected="${dirView === v}" data-act="dirview" data-v="${v}">${l}</button>`).join('')}</div>`;
   const linkCard = linkOut ? `<div class="card"><div class="sec-h"><h2 style="font-size:16px">${esc(linkOut.msg)}</h2><button class="btn quiet sm" data-act="clearlink">Dismiss</button></div>
-    <p class="sub" style="margin:0">${linkOut.kind === 'invite' ? 'Send this to them yourself (chat or email). It lets them choose a password and sign in.' : 'Send this to them. It lets them choose a new password; their old one stops working.'}${linkOut.emailed ? ' It has also been emailed to them.' : ''}</p>
+    <p class="sub" style="margin:0">${linkOut.emailed ? 'It is on its way to their inbox. The link is here too, in case it does not arrive.' : (ST.mail && !ST.mail.configured ? 'Email is not set up yet, so send this to them yourself (chat or email). ' : 'Send this to them yourself (chat or email). ') + (linkOut.kind === 'invite' ? 'It lets them choose a password and sign in.' : 'It lets them choose a new password.')}</p>
     <div class="linkbox"><input type="text" id="link-url" value="${esc(linkOut.url)}" readonly aria-label="Link"><button class="btn sm" data-act="copylink">Copy</button></div></div>` : '';
   if (dirView === 'org') return `${pageHead('Directory', 'Who reports to whom. Approvals follow these lines.', expBtn('people'))}${tabs}
     <div class="card"><ul class="org">${roots.map(p => orgNode(p, e, 0)).join('')}</ul></div>`;
@@ -1105,7 +1097,7 @@ function viewPeople(e) {
     <td><select id="pr-r-${p.id}" aria-label="Role"${p.id === ST.realId ? ' disabled title="You can\'t change your own role"' : ''}>${roleOpts(p.role)}</select></td>
     <td><input type="text" id="pr-t-${p.id}" value="${esc(p.team || '')}" aria-label="Team" style="width:130px" maxlength="60"></td>
     <td><select id="pr-m-${p.id}" aria-label="Reports to"><option value="">Nobody</option>${S.people.filter(x => x.id !== p.id && !reportsTo(x, p)).sort((a, b) => a.name.localeCompare(b.name)).map(x => `<option value="${x.id}"${p.mgr === x.id ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select></td>
-    <td>${p.account ? `<button class="btn quiet sm" data-act="mklink" data-id="${p.id}" title="Make a password reset link">Reset link</button>` : `<button class="btn ghost sm" data-act="mklink" data-id="${p.id}" title="Make an invite link"${p.email ? '' : ' disabled'}>Invite</button>`}</td>
+    <td>${p.account ? `<button class="btn quiet sm" data-act="mklink" data-id="${p.id}" title="${ST.mail?.configured ? 'Email them a password reset link' : 'Make a password reset link'}">Reset link</button>` : `<button class="btn ghost sm" data-act="mklink" data-id="${p.id}" title="${ST.mail?.configured ? 'Email them an invite' : 'Make an invite link'}"${p.email ? '' : ' disabled'}>${ST.mail?.configured ? 'Send invite' : 'Invite'}</button>`}</td>
     <td><div class="row"><button class="btn sm" data-act="saveperson" data-id="${p.id}">Save</button>${p.id === ST.realId ? '' : confirmDel === p.id ? `<button class="btn bad sm" data-act="delperson" data-id="${p.id}">Confirm</button><button class="btn quiet sm" data-act="cancel">Cancel</button>` : `<button class="btn quiet sm" data-act="askdel" data-id="${p.id}">Remove</button>`}</div></td></tr>`
     : `<tr><td><div class="person-h">${avatar(p.name, true)}<div><b>${dosLink(e, p)}</b>${p.title ? `<div class="sub">${esc(p.title)}</div>` : ''}</div></div></td><td>${esc(p.email || '—')}</td><td>${p.sub ? chip(p.sub, SUB_TONE[p.sub] || '') : chip('Group-level')}</td><td>${chip(ROLES[p.role] || p.role, ROLE_TONE[p.role])}</td><td>${esc(p.team || '—')}</td><td>${esc(mgrOf(p)?.name || '—')}</td><td>${p.account ? chip('Active', 'good') : chip('Not yet')}</td><td></td></tr>`).join('')
     : `<tr><td colspan="8" class="empty">${filtered ? 'No one matches these filters.' : 'No people yet.'}</td></tr>`}</tbody></table></div></div>`;
@@ -1159,7 +1151,7 @@ function build() {
   const badges = {appr: pend, ci: (surveyDue(e) ? 1 : 0) + (myRevToSign(e) ? 1 : 0) + leavePending(e).length, hire: myAppr(e).length + askedRoles(e).filter(sentBack).length};
   const nav = [['dash', 'Dashboard', 'Overview'], ['lead', 'Team leaderboard', 'Overview'], ['okrs', 'OKRs', 'Goals'], ...(appr ? [['appr', 'Approvals', 'Goals']] : []),
     ['stand', 'Standup', 'Rhythm'], ['review', 'Friday Review', 'Rhythm'],
-    ...(isGroup(e) || e.role === 'manager' ? [['perf', 'Performance signals', 'People']] : []), ['ci', 'Check-ins', 'People'], ...(isGroup(e) || e.role === 'manager' || onbFor(e.name) ? [['hire', 'Hiring and onboarding', 'People']] : []),
+    ...(isGroup(e) || e.role === 'manager' ? [['perf', 'Performance signals', 'People']] : []), ['ci', 'Check-ins', 'People'], ...(isGroup(e) || e.role === 'manager' ? [['hire', 'Hiring and onboarding', 'People']] : []),
     ...(isGroup(e) ? [['people', 'Directory', 'People']] : [])];
   const navAll = [...nav, ...(isGroup(e) ? [['settings', 'Settings', '']] : [])];
   if (!navAll.some(t => t[0] === tab)) tab = 'dash';
@@ -1370,7 +1362,7 @@ root.addEventListener('submit', ev => {
   } else if (f === 'addrole') {
     const id = val('ro-id') || undefined;
     act('role.save', {id, title: val('ro-title'), team: val('ro-team'), sub: val('ro-sub'), hm: val('ro-hm'), count: val('ro-n'), kind: val('ro-kind'), replacing: val('ro-rep'),
-      etype: val('ro-et'), payMin: val('ro-pmin'), payMax: val('ro-pmax'), cost: val('ro-cc'), budgeted: val('ro-bud') === '1', why: val('ro-why'), needBy: val('ro-by')})
+      etype: val('ro-et'), why: val('ro-why'), needBy: val('ro-by')})
       .then(r => { if (r) { openRole = null; editR = null; hireTab = /open/i.test(r.msg || '') && !/approval/i.test(r.msg || '') ? 'open' : 'appr'; render(); } });
   } else if (f === 'savedecl') act('role.decline', {id: val('dc-id'), why: val('dc-why')}).then(r => { if (r) { declR = null; hireTab = 'closed'; render(); } });
   else if (f === 'savesb') act('role.sendBack', {id: val('sb-id'), why: val('sb-why')}).then(r => { if (r) { sbR = null; render(); } });

@@ -117,11 +117,15 @@ test('people sign in through invite links', async () => {
   await no(client().post('/api/login', {email: 'ana@x.co', password: 'wrong-one'}), 401);
   await ok(client().post('/api/login', {email: 'ana@x.co', password: 'password1'}));
   // An invite to someone who has an account turns into a password reset link.
-  assert.equal((await ok(hr.post(`/api/people/${P('Ana Ade').id}/link`))).kind, 'reset');
+  const reset = await ok(hr.post(`/api/people/${P('Ana Ade').id}/link`));
+  assert.equal(reset.kind, 'reset'); assert.equal(reset.emailed, true);
   await no(hr.post(`/api/people/${P('Cleo Obi').id}/link`), 403);   // HR can't reset the CEO's password
-  // Invites were also emailed, since email is set up.
+  // Invites and reset links are emailed when email is set up, with the link in the body.
   await server.okr.mailer.flush();
-  assert.ok(inbox.some(m => m.includes('To: <ana@x.co>')));
+  const body = m => Buffer.from(m.split('\r\n\r\n')[1] || '', 'base64').toString();
+  const toAna = inbox.filter(m => m.includes('To: <ana@x.co>')).map(body);
+  assert.ok(toAna.some(b => b.includes('/invite?token=')));
+  assert.ok(toAna.some(b => b.includes('/reset?token=')));
 });
 
 test('members can not create OKRs; managers set them for their reporting line (OK-1)', async () => {
@@ -255,12 +259,13 @@ test('HR sends the weekly check-in and one reminder (WB-1, WB-2)', async () => {
 });
 
 test('a role request runs through its chain and the hire starts onboarding (RQ-1 to RQ-5, ON-1, ON-2)', async () => {
-  const req = {title: 'Growth Analyst', team: 'Growth', sub: 'NativeTalk', count: 1, kind: 'New headcount', etype: 'Permanent', payMin: 100, payMax: 200, budgeted: true, why: 'Reporting eats two days a week.'};
+  const req = {title: 'Growth Analyst', team: 'Growth', sub: 'NativeTalk', count: 1, kind: 'New headcount', etype: 'Permanent', why: 'Reporting eats two days a week.'};
   await no(act(ana, 'role.save', req));
   await no(act(mo, 'role.save', {...req, why: ''}));
-  await no(act(mo, 'role.save', {...req, payMin: 300}));
-  await ok(act(mo, 'role.save', req));
+  // Pay, cost centre and plan are not part of a role request, even if sent.
+  await ok(act(mo, 'role.save', {...req, payMin: 100, payMax: 200, cost: 'X', budgeted: false}));
   const r = S.roles.find(x => x.title === 'Growth Analyst');
+  assert.equal(r.payMax, undefined); assert.equal(r.cost, undefined); assert.equal(r.budgeted, undefined);
   assert.match(r.ref, /^REQ-\d{4}-\d{3}$/);
   assert.deepEqual(r.chain.map(s => s.role), ['Line manager', 'HR']);
   await no(act(mo, 'role.approve', {id: r.id}));
@@ -277,14 +282,26 @@ test('a role request runs through its chain and the hire starts onboarding (RQ-1
   assert.equal(r.status, 'Filled');
   assert.equal(P('Dee New').mgr, P('Mo Bello').id);
   const onb = S.onb.find(o => o.owner === 'Dee New');
+  // The starter has no tasks of their own: every task belongs to HR or their line manager.
+  assert.ok(onb.tasks.every(t => t.who === 'HR' || t.who === 'Manager'));
   const iHr = onb.tasks.findIndex(t => t.who === 'HR'), iMgr = onb.tasks.findIndex(t => t.who === 'Manager');
   await no(act(mo, 'onb.tick', {owner: 'Dee New', i: iHr}));
   await ok(act(hr, 'onb.tick', {owner: 'Dee New', i: iHr}));
   await no(act(ana, 'onb.tick', {owner: 'Dee New', i: iMgr}));
   await ok(act(mo, 'onb.tick', {owner: 'Dee New', i: iMgr}));
-  // Exec sign-off is added when the role is outside the plan.
-  await ok(act(mia, 'role.save', {...req, title: 'Partner Lead', sub: 'Connect', team: 'Product', budgeted: false}));
-  assert.deepEqual(S.roles.find(x => x.title === 'Partner Lead').chain.map(s => s.role), ['Line manager', 'HR']);   // the CEO is both line manager and exec, so once
+  // Members see nothing of hiring or onboarding.
+  const a = await state(ana);
+  assert.deepEqual([a.roles.length, a.onb.length], [0, 0]);
+  assert.ok((await state(mo)).onb.some(o => o.owner === 'Dee New'));
+  // The CEO step is off by default; Settings can add it to every request.
+  await ok(act(mia, 'role.save', {...req, title: 'Partner Lead', sub: 'Connect', team: 'Product'}));
+  assert.deepEqual(S.roles.find(x => x.title === 'Partner Lead').chain.map(s => s.role), ['Line manager', 'HR']);
+  const c = S.cfg, from = {subs: c.subs, leave: c.leave.map(x => x.type), etypes: c.etypes, closeWhy: c.closeWhy, onbWho: c.onbWho};
+  await ok(act(ceo, 'cfg.save', {cfg: {...c, execAll: 1}, from}));
+  await ok(act(hr, 'role.save', {...req, title: 'People Partner', team: 'People', hm: 'Cleo Obi'}));
+  const pp = S.roles.find(x => x.title === 'People Partner');
+  assert.deepEqual(pp.chain.map(s => [s.role, s.state]), [['HR', 'Approved'], ['Exec sign-off', 'Pending']]);   // HR's own step clears itself
+  await ok(act(ceo, 'cfg.save', {cfg: {...S.cfg, execAll: 0}, from}));
 });
 
 test('settings are HR and CEO only, and renames follow through (ST-1)', async () => {
@@ -385,6 +402,23 @@ test('the page, its files and the security headers are served', async () => {
   assert.equal(res.headers.get('x-frame-options'), 'DENY');
   const big = await fetch(base + '/api/state', {headers: {'accept-encoding': 'gzip', cookie: ''}});
   assert.equal(big.status, 401);
+});
+
+test('onboarding tasks from earlier builds pass from the new starter to the line manager', async () => {
+  const d2 = openDb(':memory:');
+  const put = (col, x) => d2.prepare('INSERT INTO docs (col, id, data) VALUES (?, ?, ?)').run(col, x.id, JSON.stringify(x));
+  put('tmpl', {id: 't1', name: 'Default', sub: '', tasks: [{t: 'Meet people', who: 'New hire', off: 3}, {t: 'Contract', who: 'HR', off: -7}]});
+  put('onb', {id: 'o1', owner: 'Zed', start: '2026-11-01', sub: '', from: 'Default', tasks: [{t: 'Meet people', who: 'New hire', off: 3, done: false, by: '', at: 0}]});
+  put('cfg', {id: 'cfg', onbWho: ['HR', 'Manager', 'New hire'], reqExec: 1, execAt: 5});
+  const s2 = createApp({db: d2, log: {error() {}}});
+  const S2 = s2.okr.S;
+  assert.equal(S2.tmpl[0].tasks[0].who, 'Manager');
+  assert.equal(S2.onb[0].tasks[0].who, 'Manager');
+  assert.deepEqual(S2.cfg.onbWho, ['HR', 'Manager']);
+  assert.equal(S2.cfg.reqExec, undefined); assert.equal(S2.cfg.execAll, 0);
+  // and it was saved, not just fixed in memory
+  assert.equal(JSON.parse(d2.prepare("SELECT data FROM docs WHERE col = 'tmpl'").get().data).tasks[0].who, 'Manager');
+  s2.okr.close();
 });
 
 test('a version 1 database is upgraded and keeps its goals', () => {

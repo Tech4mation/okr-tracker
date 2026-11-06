@@ -26,13 +26,14 @@ export const WLOAD = ['', 'Very light', 'Light', 'Steady', 'Heavy', 'Too much'];
 export const MOOD = ['', 'Struggling', 'Low', 'Okay', 'Good', 'Great'];
 export const SUB_TONE = {'NativeTalk': 'sky', 'Connect': 'tea', 'Cyber Villa': 'vio'};
 export const HR_ACTIONS = ['Offering support', 'Performance improvement plan', 'Ready for more responsibility'];
-// Who does what, and by when, counted in days from the start date.
+// Who does what, and by when, counted in days from the start date. The new starter has no tasks of their own:
+// HR and their line manager carry the checklist.
 export const ONB_PLAN = [
   ['Send and sign the contract', 'HR', -7], ['Create the email account and logins', 'HR', -3],
   ['Order laptop and equipment', 'HR', -3], ['Share the handbook and policies', 'HR', -1],
   ['Welcome call and introductions', 'Manager', 0], ['Walk through the role and what good looks like', 'Manager', 1],
-  ['Add to the team standup and Monday call', 'Manager', 1], ['Meet the people you work with most', 'New hire', 3],
-  ['Complete role training', 'New hire', 10], ['Agree first OKRs with your manager', 'Manager', 14],
+  ['Add to the team standup and Monday call', 'Manager', 1], ['Introduce the people they will work with most', 'Manager', 3],
+  ['Check role training is complete', 'Manager', 10], ['Agree first OKRs', 'Manager', 14],
   ['First one to one', 'Manager', 14], ['Thirty day check-in', 'HR', 30]
 ];
 
@@ -60,8 +61,8 @@ export const CFG0 = () => ({
   subs: ['NativeTalk', 'Connect', 'Cyber Villa'],
   leave: [{type: 'Annual leave', days: 25}, {type: 'Sick leave', days: 10}, {type: 'Compassionate leave', days: 5}, {type: 'Unpaid leave', days: 0}],
   yearStart: 0, staleDays: 14, riskAt: 80, behindAt: 60, aheadAt: 110,
-  standupWeeks: 2, enpsDays: 28, reviewDueDays: 21, onbWho: ['HR', 'Manager', 'New hire'],
-  cur: '₦', reqMgr: 1, reqExec: 1, execAt: 20000000,
+  standupWeeks: 2, enpsDays: 28, reviewDueDays: 21, onbWho: ['HR', 'Manager'],
+  cur: '₦', reqMgr: 1, execAll: 0,
   etypes: ['Permanent', 'Fixed term', 'Contract', 'Intern'],
   closeWhy: ['No longer needed', 'Budget cut', 'Filled another way', 'Reorganised'],
   mail: {fromName: 'Team OKR Tracker', replyTo: '', digestHour: 8, modes: Object.fromEntries(Object.entries(ALERTS).map(([k, v]) => [k, v[2]]))},
@@ -315,16 +316,17 @@ export function createModel({getSub = () => ''} = {}) {
   const onbLate = (o, t) => !t.done && onbDue(o, t) < new Date();
   const onbActive = () => S.onb.filter(o => onbPct(o) < 100).sort((a, b) => a.start.localeCompare(b.start));
   const newOnb = (name, start, sub) => ({id: uuid(), owner: name, start, sub: sub || '', from: (tmplFor(sub).name || 'Default'), tasks: tmplFor(sub).tasks.map(t => ({...t, done: false, by: '', at: 0}))});
-  // ON-2: a task can be ticked only by its owner: the starter, their manager, or HR.
+  // A task is ticked by whoever owns it: the starter's line manager (or the CEO) for Manager tasks, HR for the rest.
+  // The new starter never ticks anything; older "New hire" tasks pass to the line manager.
+  const mgrTask = t => t.who === 'Manager' || t.who === 'New hire';
   const onbCanTick = (e, o, t) => { const p = person(o.owner);
-    if (t.who === 'New hire') return o.owner === e.name;
-    if (t.who === 'Manager') return !!(p && mgrOf(p) && mgrOf(p).id === e.id) || e.role === 'ceo';
+    if (o.owner === e.name) return false;
+    if (mgrTask(t)) return !!(p && mgrOf(p) && mgrOf(p).id === e.id) || e.role === 'ceo';
     return isGroup(e);
   };
-  // Whose a task is, by name: used for the daily email.
+  // Whose a task is, by name: used for the dashboard and the daily email.
   const onbOwners = (o, t) => { const p = person(o.owner);
-    if (t.who === 'New hire') return [o.owner];
-    if (t.who === 'Manager') { const m = p && mgrOf(p); return m ? [m.name] : S.people.filter(x => x.role === 'ceo').map(x => x.name); }
+    if (mgrTask(t)) { const m = p && mgrOf(p); return m ? [m.name] : S.people.filter(x => x.role === 'ceo').map(x => x.name); }
     return S.people.filter(x => x.role === 'hr').map(x => x.name);
   };
 
@@ -351,14 +353,14 @@ export function createModel({getSub = () => ''} = {}) {
   const stepNo = r => chainOf(r).findIndex(x => x.state === 'Pending') + 1;
   const canStep = (e, st) => !!st && !!e && (st.role === 'HR' ? e.role === 'hr' : st.who === e.name);
   const stepLabel = st => st ? (st.role === 'HR' ? 'HR' : st.who + ' (' + st.role.toLowerCase() + ')') : '';
-  // Line manager, then HR, then exec sign-off when the role is outside the plan or
-  // costs more than the threshold. All three are policy, set in Settings.
-  function chainFor(name, budgeted, cost) {
+  // Line manager, then HR, then (if Settings asks for it) the CEO. Role requests carry no pay or budget
+  // details, so exec sign-off is all or nothing rather than triggered by cost.
+  function chainFor(name) {
     const p = person(name), out = [], m = p && mgrOf(p);
     if (S.cfg.reqMgr && m) out.push({role: 'Line manager', who: m.name});
     out.push({role: 'HR', who: ''});
     const boss = S.people.find(x => x.role === 'ceo');
-    if (S.cfg.reqExec && boss && (!budgeted || cost >= S.cfg.execAt)) out.push({role: 'Exec sign-off', who: boss.name});
+    if (S.cfg.execAll && boss) out.push({role: 'Exec sign-off', who: boss.name});
     const seen = new Set();
     return out.filter(st => { const k = st.role === 'HR' ? 'HR' : st.who; if (seen.has(k)) return false; seen.add(k); return true; })
       .map(st => ({...st, state: 'Pending', at: 0, note: ''}));
@@ -477,10 +479,7 @@ export function createModel({getSub = () => ''} = {}) {
     if (revN) add('okrChange', `${plural(revN, 'OKR change is', 'OKR changes are')} waiting for your approval.`, 'appr', 'Review');
     const lv = leavePending(e).length;
     if (lv) add('leaveAsked', `${plural(lv, 'leave request is', 'leave requests are')} waiting for your decision.`, 'ci-leave', 'Decide');
-    const myOnb = onbFor(e.name);
-    if (myOnb && onbPct(myOnb) < 100) { const n = myOnb.tasks.filter(t => t.who === 'New hire' && !t.done).length;
-      if (n) add('onbDue', plural(n, 'onboarding task is', 'onboarding tasks are') + ' waiting for you.', 'hire-onb', 'Open checklist'); }
-    const theirs = onbActive().filter(o => o.owner !== e.name).reduce((t, o) => t + o.tasks.filter(t2 => !t2.done && t2.who !== 'New hire' && onbOwners(o, t2).includes(e.name) && onbDue(o, t2) <= new Date(Date.now() + 2 * 86400000)).length, 0);
+    const theirs = onbActive().filter(o => o.owner !== e.name).reduce((t, o) => t + o.tasks.filter(t2 => !t2.done && onbOwners(o, t2).includes(e.name) && onbDue(o, t2) <= new Date(Date.now() + 2 * 86400000)).length, 0);
     if (theirs) add('onbDue', plural(theirs, 'onboarding task for a new starter is', 'onboarding tasks for new starters are') + ' due or overdue.', 'hire-onb', 'Open checklists');
     const onMe = myAppr(e), askedMine = askedRoles(e), backToMe = askedMine.filter(sentBack);
     if (onMe.length) add('roleStep', `${plural(onMe.length, 'role request is', 'role requests are')} at your step of the approval chain.`, 'hire-appr', 'Approve');

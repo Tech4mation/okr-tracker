@@ -85,6 +85,16 @@ export function createApp({db, publicUrl = '', cookieSecure = false, trustProxy 
     remove(id) { afterCommit.push(() => fs.rm(files.path(id), {force: true}, () => {})); },
   };
   const {actions} = createActions(M, {notify: mailer.notify, accounts, files});
+  // Data from earlier builds: new starters no longer own onboarding tasks (their tasks pass to the line
+  // manager), and role requests no longer use a cost threshold for exec sign-off.
+  store.run(() => {
+    const fix = t => { if (t.who === 'New hire') t.who = 'Manager'; };
+    S.tmpl.forEach(tp => tp.tasks.forEach(fix)); S.onb.forEach(o => o.tasks.forEach(fix));
+    S.cfg.onbWho = S.cfg.onbWho.filter(x => x !== 'New hire');
+    if (!S.cfg.onbWho.includes('Manager')) S.cfg.onbWho.unshift('Manager');
+    if (!S.cfg.onbWho.includes('HR')) S.cfg.onbWho.unshift('HR');
+    delete S.cfg.reqExec; delete S.cfg.execAt;
+  });
   // Runs a change against the shared state; on success saves it, tells every open page and sends email.
   function change(fn) {
     afterCommit.length = 0;
@@ -217,16 +227,18 @@ export function createApp({db, publicUrl = '', cookieSecure = false, trustProxy 
     ['POST', /^\/api\/people\/([\w-]+)\/link$/, (c, b, req, res, m) => {
       const e = groupOnly(c), p = S.people.find(x => x.id === m[1]) || fail(404, 'That person is no longer in the directory.');
       if (p.role === 'ceo' && e.role !== 'ceo') fail(403, 'Only the CEO can do that for a CEO.');
+      const emailable = !!transport && EMAIL_RE.test(p.email || '');
+      // The link goes to their inbox when email is set up; it is shown here as well, to pass on by hand if needed.
+      const sendMail = (kind, subject, text) => { if (emailable) change(() => mailer.notify(kind, [p.name], {subject, text, tab: null, key: `${kind}:${p.id}:${now()}`})); };
       if (p.uid) {
         const url = resetLink(db, baseUrl(req), Number(p.uid));
-        return {url, kind: 'reset', msg: `Password reset link for ${p.name}, valid for 24 hours.`};
+        sendMail('reset', 'Reset your Team OKR Tracker password', `${e.name} has sent you a link to choose a new password. It works once, within 24 hours:\n${url}\n\nIf you did not ask for this, you can ignore it; your current password still works.`);
+        return {url, kind: 'reset', emailed: emailable, msg: emailable ? `Password reset link emailed to ${p.email}, valid for 24 hours.` : `Password reset link for ${p.name}, valid for 24 hours.`};
       }
       if (!EMAIL_RE.test(p.email || '')) fail(400, `Add an email address for ${p.name} first. It is what they sign in with.`);
       const url = inviteLink(db, baseUrl(req), p.id);
-      if (transport && EMAIL_RE.test(p.email)) {
-        change(() => mailer.notify('invite', [p.name], {subject: 'You have been invited to Team OKR Tracker', text: `${e.name} has added you to Team OKR Tracker. Use this link to choose a password (valid 14 days):\n${url}`, tab: '', key: `invite:${p.id}:${now()}`}));
-      }
-      return {url, kind: 'invite', msg: `Invite link for ${p.name}, valid for 14 days.`};
+      sendMail('invite', 'You have been invited to Team OKR Tracker', `${e.name} has added you to Team OKR Tracker. Use this link to choose a password and sign in. It works once, within 14 days:\n${url}\n\nYou will sign in with this email address.`);
+      return {url, kind: 'invite', emailed: emailable, msg: emailable ? `Invite emailed to ${p.email}, valid for 14 days.` : `Invite link for ${p.name}, valid for 14 days.`};
     }],
 
     // DX-3: a file attached to a document on someone's record.

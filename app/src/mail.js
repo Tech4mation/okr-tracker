@@ -27,7 +27,7 @@ export function createMailer({db, M, baseUrl, transport, log = console}) {
   function notify(kind, names, {subject, text, tab, key}) {
     // Kinds outside the alert table, such as an invite, always go straight away.
     if (ALERTS[kind] && (S.cfg.mail?.modes?.[kind] || ALERTS[kind][2]) !== 'now') return;
-    names.forEach(n => queue(kind, n, subject, `${text}\n\nOpen it: ${link(tab)}`, `${key}:${n}`));
+    names.forEach(n => queue(kind, n, subject, tab == null ? text : `${text}\n\nOpen it: ${link(tab)}`, `${key}:${n}`));
   }
 
   // NT-3: one email a day per person, collecting the chasing alerts. Weekdays only.
