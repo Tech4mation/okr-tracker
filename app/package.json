@@ -1,8 +1,8 @@
 {
   "name": "team-okr-tracker",
   "private": true,
-  "version": "1.0.0",
-  "description": "Team OKR Tracker: annual OKRs with manager approval and a weekly rhythm. No third-party dependencies.",
+  "version": "1.1.0",
+  "description": "Team OKR Tracker (PRD v1.1): goals, standup, approvals, reviews, leave, hiring, onboarding and email alerts. No third-party dependencies.",
   "type": "module",
   "engines": { "node": ">=22.13" },
   "scripts": {

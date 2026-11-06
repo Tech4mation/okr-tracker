@@ -9,6 +9,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {openDb} from './src/db.js';
 import {createApp, setupLink, resetLink} from './src/app.js';
+import {createSmtpTransport} from './src/smtp.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const env = process.env;
@@ -43,14 +44,24 @@ if (cmd === 'backup') {
 }
 if (cmd) { console.error(`Unknown command "${cmd}". Use setup-link, reset-link <email> or backup [file].`); process.exit(1); }
 
+// Email (PRD section 13). Without SMTP_HOST and MAIL_FROM the app still runs; alerts stay in the app and the
+// outbox records that email is not set up.
+const transport = createSmtpTransport({
+  host: env.SMTP_HOST, port: Number(env.SMTP_PORT) || (env.SMTP_SECURE === 'true' ? 465 : 587), secure: env.SMTP_SECURE === 'true',
+  user: env.SMTP_USER || '', pass: env.SMTP_PASS || '', from: env.MAIL_FROM, rejectUnauthorized: env.SMTP_TLS_REJECT_UNAUTHORIZED !== 'false',
+});
+
 const server = createApp({
   db,
   publicUrl: PUBLIC_URL,
   cookieSecure: env.COOKIE_SECURE ? env.COOKIE_SECURE === 'true' : PUBLIC_URL.startsWith('https://'),
   trustProxy: env.TRUST_PROXY === 'true',
+  filesDir: path.join(DATA_DIR, 'files'),
+  transport,
 });
 server.listen(PORT, HOST, () => {
   console.log(`Team OKR Tracker listening on http://${HOST}:${PORT} (data in ${DATA_DIR})`);
+  console.log(transport ? `Email goes out through ${transport.describe} as ${transport.from}.` : 'Email is not set up (no SMTP_HOST / MAIL_FROM). Alerts stay in the app.');
   const link = setupLink(db, BASE);
   if (link) console.log(`No CEO account yet. Open this link to create it (valid 7 days):\n${link}`);
 });

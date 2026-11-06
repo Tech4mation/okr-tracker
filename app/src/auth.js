@@ -63,9 +63,9 @@ export function sessionCookie(token, secure) {
 }
 
 // ---------- one-time links ----------
-export function createLinkToken(db, kind, userId, days) {
+export function createLinkToken(db, kind, userId, days, personId = null) {
   const token = newToken();
-  db.prepare('INSERT INTO tokens (token_hash, kind, user_id, expires_at) VALUES (?, ?, ?, ?)').run(sha(token), kind, userId ?? null, Date.now() + days * DAY);
+  db.prepare('INSERT INTO tokens (token_hash, kind, user_id, expires_at, person_id) VALUES (?, ?, ?, ?, ?)').run(sha(token), kind, userId ?? null, Date.now() + days * DAY, personId);
   return token;
 }
 export function findLinkToken(db, kind, token) {
