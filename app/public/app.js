@@ -26,7 +26,7 @@ const subs = () => S.cfg.subs;
 // ---------- page state ----------
 let ST = null, phase = 'boot', authMsg = '', link = null, viewAs = null;
 let pf = {q: '', team: '', role: ''};
-const FF0 = () => ({appr2: {q: '', team: ''}, hist: {q: '', team: '', v: ''}, hire: {q: '', team: ''}, rev: {q: '', team: '', v: ''}, lead: {q: '', team: ''}, perf: {q: '', team: ''}, welf: {q: '', team: ''}, okrs: {q: '', team: '', st: '', mo: ''}, appr: {q: '', team: ''}, stand: {q: '', st: ''}, review: {q: '', st: ''}});
+const FF0 = () => ({appr2: {q: '', team: ''}, hist: {q: '', team: '', v: ''}, hire: {q: '', team: ''}, rev: {q: '', team: '', v: ''}, lead: {q: '', team: ''}, perf: {q: '', team: ''}, welf: {q: '', team: ''}, okrs: {q: '', team: '', st: '', mo: ''}, appr: {q: '', team: ''}, stand: {q: '', st: ''}, review: {q: '', st: ''}, leave: {y: '', who: ''}});
 let ff = FF0();
 let wk = curWeek(), tab = 'dash', confirmDel = null;
 let draft = {owner: null, obj: '', krs: ['', ''], ms: [null, null], kt: ['binary', 'binary'], tg: ['', ''], un: ['', '']}, showForm = false, navOpen = false;
@@ -841,19 +841,54 @@ function viewWelf(e) {
 
 function viewLeave(e) {
   const pend = leavePending(e);
-  const myLeave = leaveFor(e.name);
+  const td = today(), team = isGroup(e) || e.role === 'manager', f = ff.leave;
   const bal = x => leaveAllow(x.type) > 0 ? leaveBal(e.name, x.type) + ' ' + x.type.toLowerCase() : null;
-  return `<div class="row between"><p class="sub" style="margin:0">Time off, and the requests waiting on you.</p>${isGroup(e) || e.role === 'manager' ? expBtn('leave') : ''}</div>
+  const dd = (d, wd) => parseIso(d).toLocaleDateString(undefined, {...(wd ? {weekday: 'short'} : {}), day: 'numeric', month: 'short'});
+  const daysTo = d => Math.round((parseIso(d) - parseIso(td)) / 864e5);
+  const who = n => { const p = person(n); return (p ? dosLink(e, p) : esc(n)) + (n === e.name ? ' <span class="sub">(you)</span>' : ''); };
+  // The server already sends only the leave this person may see; the subsidiary filter narrows it for HR and the CEO.
+  const vis = S.leave.filter(l => !isGroup(e) || lbScope(e).has(l.owner));
+  // Your leave: anything still to come or still waiting. Finished leave moves to the history below.
+  const myLeave = leaveFor(e.name).filter(l => l.to >= td || l.status === 'Requested').sort((a, b) => a.from.localeCompare(b.from));
+  const offNow = team ? vis.filter(l => l.status === 'Approved' && l.from <= td && l.to >= td).sort((a, b) => a.to.localeCompare(b.to) || a.owner.localeCompare(b.owner)) : [];
+  const ahead = team ? vis.filter(l => l.status === 'Approved' && l.from > td && l.from <= shiftDay(td, 30)).sort((a, b) => a.from.localeCompare(b.from) || a.owner.localeCompare(b.owner)) : [];
+  const awayRow = (l, now) => `<div class="kr"><div class="person-h t">${avatar(l.owner)}<div style="min-width:0"><div><b>${who(l.owner)}</b> <span class="sub">${esc(l.type)}</span></div>
+    <div class="sub">${now ? 'Off until ' + esc(dd(l.to, 1)) + (l.from < td ? ', since ' + esc(dd(l.from)) : '') : esc(dd(l.from, 1)) + ' to ' + esc(dd(l.to, 1))} · ${plural(l.days, 'day', 'days')}</div></div></div>
+    ${now ? chip(l.to === td ? 'Last day today' : 'Off today', 'warn') : chip(daysTo(l.from) === 1 ? 'Starts tomorrow' : 'Starts in ' + daysTo(l.from) + ' days')}</div>`;
+  const awayCard = team ? `<section class="card"><div class="sec-h"><h2>Who's away</h2>${chip(offNow.length ? offNow.length + ' off today' : 'Everyone in', offNow.length ? 'warn' : 'good')}</div>
+    ${offNow.length ? `<div class="list">${offNow.map(l => awayRow(l, true)).join('')}</div>` : '<p class="sub" style="margin:0">Nobody is on leave today.</p>'}
+    <div class="sub" style="font-weight:600;margin-top:4px">Coming up in the next 30 days</div>
+    ${ahead.length ? `<div class="list">${ahead.map(l => awayRow(l, false)).join('')}</div>` : '<p class="sub" style="margin:0">No approved leave starts in the next 30 days.</p>'}</section>` : '';
+  // Leave already taken, by year (counted by the year it started, as the balances are) and, for managers and HR, by person.
+  const past = vis.filter(l => l.status === 'Approved' && l.to < td);
+  const years = [...new Set([String(curY()), ...past.map(l => l.from.slice(0, 4))])].sort().reverse();
+  const y = years.includes(f.y) ? f.y : String(curY());
+  const names = [...new Set(past.map(l => l.owner))].sort();
+  const pw = team && names.includes(f.who) ? f.who : '';
+  const rows = past.filter(l => l.from.slice(0, 4) === y && (!pw || l.owner === pw)).sort((a, b) => b.from.localeCompare(a.from) || a.owner.localeCompare(b.owner));
+  const byType = new Map(); rows.forEach(l => byType.set(l.type, (byType.get(l.type) || 0) + l.days));
+  const total = rows.reduce((t, l) => t + l.days, 0);
+  const pastCard = `<section class="card"><div class="sec-h"><h2>${team ? 'Past leave' : 'Your past leave'}</h2>
+      <div class="row">${years.length > 1 ? `<label class="viewas">Year <select id="lv-y" class="sm" data-ff="leave.y">${years.map(x => `<option${x === y ? ' selected' : ''}>${x}</option>`).join('')}</select></label>` : ''}
+      ${team && names.length > 1 ? `<label class="viewas">Person <select id="lv-who" class="sm" data-ff="leave.who"><option value="">Everyone</option>${names.map(n => `<option value="${esc(n)}"${n === pw ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select></label>` : ''}</div></div>
+    <p class="sub" style="margin:0">${total ? `${plural(total, 'day', 'days')} taken${pw ? ' by ' + esc(pw) : ''} in ${y}: ${[...byType].map(([t, n]) => n + ' ' + esc(t.toLowerCase())).join(' · ')}.` : `No leave taken${pw ? ' by ' + esc(pw) : ''} in ${y} so far.`}</p>
+    ${rows.length ? `<div class="list">${rows.slice(0, 100).map(l => `<div class="kr"><div class="${team ? 'person-h ' : ''}t">${team ? avatar(l.owner) : ''}<div style="min-width:0">
+      <div>${team ? `<b>${who(l.owner)}</b> <span class="sub">${esc(l.type)}</span>` : esc(l.type)}</div>
+      <div class="sub">${esc(dd(l.from))} to ${esc(dd(l.to))} · ${plural(l.days, 'day', 'days')}${l.apBy ? ' · approved by ' + esc(l.apBy) : ''}</div></div></div></div>`).join('')}</div>
+      ${rows.length > 100 ? `<p class="sub" style="margin:0">Showing the latest 100. Export CSV has the rest.</p>` : ''}` : ''}</section>`;
+  return `<div class="row between"><p class="sub" style="margin:0">${team ? 'Who is away, the requests waiting on you, and leave already taken.' : 'Book time off, and see what you have taken.'}</p>${team ? expBtn('leave') : ''}</div>
   ${pend.length ? `<section class="card"><div class="sec-h"><h2>Leave to approve</h2>${chip(plural(pend.length, 'request', 'requests'), 'warn')}</div>
     <div class="list">${pend.map(l => `<div class="kr"><div class="person-h t">${avatar(l.owner)}<div style="min-width:0"><div><b>${esc(l.owner)}</b> <span class="sub">${esc(l.type)}</span></div>
       <div class="sub">${esc(parseIso(l.from).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}))} to ${esc(parseIso(l.to).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}))} · ${plural(l.days, 'day', 'days')}${leaveAllow(l.type) > 0 ? ' · ' + leaveBal(l.owner, l.type) + ' days of ' + esc(l.type).toLowerCase() + ' left' : ''}</div></div></div>
     <div class="acts"><button class="btn sm" data-act="apleave" data-id="${l.id}">Approve</button><button class="btn ghost sm" data-act="rejleave" data-id="${l.id}">Decline</button></div></div>`).join('')}</div></section>` : ''}
+  ${awayCard}
   <section class="card"><div class="sec-h"><h2>Your leave</h2><span class="sub">${S.cfg.leave.map(bal).filter(Boolean).join(' · ')} left this year</span></div>
     <form class="row" data-submit="addleave" style="align-items:flex-end"><label class="f">From<input type="date" id="lv-from"></label><label class="f">To<input type="date" id="lv-to"></label>
       <label class="f">Type<select id="lv-type">${S.cfg.leave.map(x => `<option>${esc(x.type)}</option>`).join('')}</select></label>
       <button class="btn" type="submit">Request</button><span class="sub">Goes to ${esc(approverOf({owner: e.name}))} for approval.</span></form>
-    <div class="list">${myLeave.length ? myLeave.slice(0, 8).map(l => `<div class="kr"><div class="t">${esc(l.type)}<div class="sub">${esc(parseIso(l.from).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}))} to ${esc(parseIso(l.to).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}))} · ${plural(l.days, 'day', 'days')}${l.apBy ? ' · ' + esc(l.status.toLowerCase()) + ' by ' + esc(l.apBy) : ''}</div></div>
-      <div class="acts">${chip(l.status, l.status === 'Approved' ? 'good' : l.status === 'Requested' ? 'warn' : '')}${l.status === 'Requested' ? `<button class="btn quiet sm" data-act="delleave" data-id="${l.id}">Withdraw</button>` : ''}</div></div>`).join('') : '<div class="sub">No leave booked this year.</div>'}</div></section>`;
+    <div class="list">${myLeave.length ? myLeave.map(l => `<div class="kr"><div class="t">${esc(l.type)}<div class="sub">${esc(dd(l.from, 1))} to ${esc(dd(l.to, 1))} · ${plural(l.days, 'day', 'days')}${l.apBy ? ' · ' + esc(l.status.toLowerCase()) + ' by ' + esc(l.apBy) : ''}</div></div>
+      <div class="acts">${l.status === 'Approved' && l.from <= td ? chip('On leave now', 'good') : chip(l.status, l.status === 'Approved' ? 'good' : l.status === 'Requested' ? 'warn' : '')}${l.status === 'Requested' ? `<button class="btn quiet sm" data-act="delleave" data-id="${l.id}">Withdraw</button>` : ''}</div></div>`).join('') : '<div class="sub">Nothing booked from today on. Leave you have taken is under past leave below.</div>'}</div></section>
+  ${pastCard}`;
 }
 
 function viewCheck(e) {
