@@ -9,6 +9,7 @@ services:
       PUBLIC_URL: https://okr.example.com   # the address people will use
       TRUST_PROXY: "true"                   # behind nginx
       TZ: Africa/Lagos                      # weeks start on Monday in this timezone
+      # FIRST_ORG_NAME: Example Ltd         # name of the first organization
       # Email alerts (optional). Without these, alerts stay in the app.
       # SMTP_HOST: smtp.example.com
       # SMTP_PORT: "587"

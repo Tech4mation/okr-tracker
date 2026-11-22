@@ -1,4 +1,5 @@
-// SQLite storage, using Node's built-in driver. One file holds everything; back it up by copying it (see README).
+// SQLite storage, using Node's built-in driver. Each organization has one file holding all of its records and
+// accounts (data/orgs/<id>/okr.db); src/platform.js keeps the small shared file that routes people to theirs.
 import {DatabaseSync} from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -76,13 +77,15 @@ db => {
 
 export const SCHEMA_V1 = MIGRATIONS[0];   // for the upgrade test
 
-export function openDb(file) {
+// Opens a database file and brings it up to the latest schema in `migrations` (an organization's, by default).
+export function openDb(file, migrations = MIGRATIONS) {
   if (file !== ':memory:') fs.mkdirSync(path.dirname(file), {recursive: true});
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   const from = db.prepare('PRAGMA user_version').get().user_version;
-  for (let v = from; v < MIGRATIONS.length; v++) tx(db, () => {
-    const m = MIGRATIONS[v];
+  if (from > migrations.length) throw new Error(`${file} was written by a newer version of the app (schema ${from}). Update the app before opening it.`);
+  for (let v = from; v < migrations.length; v++) tx(db, () => {
+    const m = migrations[v];
     if (typeof m === 'function') m(db); else db.exec(m);
     db.exec(`PRAGMA user_version = ${v + 1}`);
   });

@@ -8,6 +8,8 @@
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning server.js",
     "dev": "node --disable-warning=ExperimentalWarning --watch server.js",
+    "orgs": "node --disable-warning=ExperimentalWarning server.js orgs",
+    "org-create": "node --disable-warning=ExperimentalWarning server.js org-create",
     "setup-link": "node --disable-warning=ExperimentalWarning server.js setup-link",
     "reset-link": "node --disable-warning=ExperimentalWarning server.js reset-link",
     "backup": "node --disable-warning=ExperimentalWarning server.js backup",

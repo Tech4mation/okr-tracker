@@ -13,7 +13,8 @@ The screens are the product lead's v1.1 prototype. This app gives them:
 - a server that enforces who may see and change what.
 
 How it is built:
-- **One process, one file.** It is a single Node.js process with one SQLite file and no third-party packages, so there is nothing to `npm install`.
+- **One platform, many organizations.** Each company is an organization with its own people, settings, records, files and email log. Nobody in one organization can see or change anything in another. Everyone signs in at the same address and lands in their own organization. One email address belongs to one organization.
+- **One process, no packages.** It is a single Node.js process using SQLite, with no third-party packages, so there is nothing to `npm install`. Each organization has its own database file.
 - **Sign-in:** people sign in with email and password. HR or the CEO adds them and hands them an invite link.
 - **Privacy:** each browser receives only what that person may see, under PRD section 1 and the permissions matrix. Every change is re-checked on the server.
 - **Live updates:** changes show up for everyone without refreshing.
@@ -53,9 +54,24 @@ Then set up nginx from `deploy/nginx.conf`. The live-updates stream (`/api/event
 
 ## First run
 
-1. **Create the CEO account.** On first start the server prints a one-time link, `https://okr.yourcompany.com/setup?token=…`, valid for 7 days. Open it and create the account. If the link is lost, run `npm run setup-link` (Docker: `docker compose exec okr-tracker node server.js setup-link`).
+1. **Create the CEO account.** A fresh install starts with one empty organization, named by `FIRST_ORG_NAME`. On first start the server prints a one-time link for it, `https://okr.yourcompany.com/setup?token=…`, valid for 7 days. Open it and create the account. If the link is lost, run `npm run setup-link` (Docker: `docker compose exec okr-tracker node server.js setup-link`).
 2. **Add everyone.** The CEO or HR adds people in the **Directory**, either one at a time or with **Import CSV**. Set each person's line manager, because approvals, reviews and leave all follow the reporting line.
 3. **Invite them.** Press **Invite** next to each person to get their link, valid for 14 days. If email is set up, the link is also emailed to them. They open it, choose a password and are in. There is no public sign-up page.
+
+## Organizations
+
+Run these on the server, from the `app` folder (Docker: `docker compose exec okr-tracker node server.js <command>`):
+
+| Command | What it does |
+|---|---|
+| `npm run orgs` | Lists every organization: its id, name, number of people and CEO. |
+| `npm run org-create -- "Acme Ltd"` | Adds an empty organization and prints a setup link for its CEO, valid 7 days. Send it to them; whoever uses it becomes that organization's CEO. |
+| `npm run setup-link -- <org-id>` | A new setup link for an organization that has no CEO yet. The id can be left out while there is only one organization. |
+| `npm run reset-link -- <email>` | A password reset link for that account, in whichever organization it belongs to. |
+
+Adding an email address that another organization already uses is refused, whether it is typed in, imported or used to set up a CEO. The address frees up when its person is removed.
+
+**Upgrading from the single-company build:** on its first start, the old `data/okr-tracker.db` and `data/files/` become the first organization, named by `FIRST_ORG_NAME`. Every record, account and open session is kept, and links already sent out still work. The old file is renamed to `okr-tracker.db.moved-to-<org-id>` rather than deleted. Stop the app before the upgrade and take a backup, as for any update.
 
 ## Settings (environment variables)
 
@@ -64,7 +80,8 @@ Then set up nginx from `deploy/nginx.conf`. The live-updates stream (`/api/event
 | `PUBLIC_URL` | none | The address people use, such as `https://okr.yourcompany.com`. It is used in links and emails, and an `https` address turns on secure cookies. |
 | `PORT` | `3000` | Port to listen on. |
 | `HOST` | `127.0.0.1` | Address to listen on. Docker sets `0.0.0.0`. |
-| `DATA_DIR` | `./data` | Where the database file and attached documents (`files/`) live. |
+| `DATA_DIR` | `./data` | Where the data lives: `platform.db` (the organizations, and which one each email belongs to) and one folder per organization, `orgs/<id>/`, holding its `okr.db`, its attached documents (`files/`) and its backups (`backups/`). |
+| `FIRST_ORG_NAME` | `My organization` | Name of the organization a fresh install starts with, or that an upgraded single-company install becomes. |
 | `TRUST_PROXY` | `false` | Set `true` behind nginx so sign-in rate limits see real client addresses. |
 | `TZ` | server's | Timezone for weeks (Monday to Sunday), due months and the daily email. |
 | `COOKIE_SECURE` | from `PUBLIC_URL` | Force secure cookies `true` or `false`. |
@@ -86,16 +103,16 @@ Then set up nginx from `deploy/nginx.conf`. The live-updates stream (`/api/event
 
 - **Forgotten password:** HR or the CEO opens the Directory and presses **Reset link** next to the person, then sends them the link privately. It works once, within 24 hours. If the CEO is locked out, run `npm run reset-link -- ceo@yourcompany.com` on the server.
 - **Backups:** run `npm run backup`.
-  - It writes a consistent copy of the database to `data/backups/` and is safe while the app is running. On Docker, use `docker compose exec okr-tracker node server.js backup`.
-  - Attached documents are files in `data/files/`, so copy that folder too.
-  - Copy both off the server. A nightly cron job is enough:
+  - It writes a consistent copy of every organization's database to its own `data/orgs/<id>/backups/`, and of `platform.db` to `data/backups/`. It is safe while the app is running. On Docker, use `docker compose exec okr-tracker node server.js backup`.
+  - Attached documents are files in each `data/orgs/<id>/files/`, so copy those folders too.
+  - Copy all of it off the server. A nightly cron job is enough:
     `0 2 * * * cd /opt/okr-tracker/app && sudo -u okr node --disable-warning=ExperimentalWarning server.js backup`
-- **Restore:**
+- **Restore one organization:**
   1. Stop the app.
-  2. Replace `data/okr-tracker.db` with the backup and put back `data/files/`.
-  3. Delete any `okr-tracker.db-wal` and `okr-tracker.db-shm` files next to it.
-  4. Start the app.
-- **Update:** run `git pull`, then `sudo systemctl restart okr-tracker` (Docker: `docker compose up -d --build`). The database upgrades itself on start.
+  2. Replace `data/orgs/<id>/okr.db` with its backup and put back its `files/` folder.
+  3. Delete any `okr.db-wal` and `okr.db-shm` files next to it.
+  4. Start the app. Its people's email addresses are re-registered to it on start.
+- **Update:** run `git pull`, then `sudo systemctl restart okr-tracker` (Docker: `docker compose up -d --build`). One update reaches every organization at once; each organization's database upgrades itself on start.
   - Upgrading from the v1.0 build keeps accounts, people, OKRs, standup entries and weekly gains.
   - It drops v1.0's weekly priorities and achievements, which v1.1 does not have.
   - Take a backup first.
@@ -104,6 +121,7 @@ Then set up nginx from `deploy/nginx.conf`. The live-updates stream (`/api/event
 
 - **Passwords and sessions:** passwords are hashed with scrypt. Sessions are random tokens in an HttpOnly cookie; the server stores only their hash, and they last 30 days from last use.
 - **Sign-in limits:** sign-in is limited to 10 attempts per address and email every 15 minutes. Invite and reset links are single-use and expire.
+- **Organizations are kept apart.** A session cookie or link names its organization, and its token is checked against that organization's own database only. Relabelling one for another organization signs nobody in. Live updates, email, files and the CEO preview all stay inside one organization.
 - **What each browser receives:** only what that person may see. Examples:
   - A member never receives a colleague's goals, reviews, check-ins, leave or pay.
   - A manager's review stays hidden from the person until it is shared.
@@ -122,12 +140,15 @@ npm test        # API tests against the PRD rules
 
 | Path | What it is |
 |---|---|
-| `server.js` | Entry point, and the setup-link, reset-link and backup commands |
+| `server.js` | Entry point, and the orgs, org-create, setup-link, reset-link and backup commands |
+| `src/platform.js` | The organizations, which one each email belongs to, and the upgrade from the single-company layout |
+| `src/org.js` | One organization: its records, actions, accounts, links, files, email and live updates |
 | `public/model.js` | The rules: who sees whom, progress and status, approvals, reviews, leave, hiring, onboarding. Shared by the server and the page |
 | `src/actions.js` | Every change, as a named action the server checks and runs |
 | `src/view.js` | What each person's browser is allowed to receive |
 | `src/store.js` | Keeps the in-memory state and the database in step, all or nothing |
-| `src/app.js` | HTTP server: sign-in, invites, state, actions, documents, email log, live updates, static files |
+| `src/app.js` | HTTP server: routes each request to its organization, sign-in, live updates, static files |
+| `src/http.js` | Small shared HTTP helpers |
 | `src/mail.js`, `src/smtp.js` | Email alerts, the daily email, the outbox, and a small SMTP client |
 | `src/db.js` | SQLite schema and upgrades |
 | `src/auth.js` | Passwords, sessions, one-time links, rate limiting |
