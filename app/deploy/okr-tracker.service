@@ -12,6 +12,12 @@ Environment=PORT=3000
 Environment=PUBLIC_URL=https://okr.example.com
 Environment=TRUST_PROXY=true
 Environment=TZ=Africa/Lagos
+# Email alerts (optional). Without these, alerts stay in the app.
+#Environment=SMTP_HOST=smtp.example.com
+#Environment=SMTP_PORT=587
+#Environment=SMTP_USER=okr@example.com
+#Environment=SMTP_PASS=change-me
+#Environment=MAIL_FROM=okr@example.com
 ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning server.js
 Restart=on-failure
 RestartSec=3

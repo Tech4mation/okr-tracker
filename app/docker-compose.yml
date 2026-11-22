@@ -9,6 +9,12 @@ services:
       PUBLIC_URL: https://okr.example.com   # the address people will use
       TRUST_PROXY: "true"                   # behind nginx
       TZ: Africa/Lagos                      # weeks start on Monday in this timezone
+      # Email alerts (optional). Without these, alerts stay in the app.
+      # SMTP_HOST: smtp.example.com
+      # SMTP_PORT: "587"
+      # SMTP_USER: okr@example.com
+      # SMTP_PASS: change-me
+      # MAIL_FROM: okr@example.com
     volumes:
       - okr-data:/data
 
