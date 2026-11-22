@@ -6,6 +6,8 @@ import {ROLES, SSTAT, KRTYPE, RKIND, HR_ACTIONS, ALERTS, ALERT_MODES, EMAIL_RE, 
 
 export class Refusal extends Error {}
 const no = msg => { throw new Refusal(msg); };
+// One email address belongs to one organization on the platform.
+export const ELSEWHERE = 'That email address already belongs to another organization on this platform. Each address can belong to only one organization.';
 
 // ---------- input checks ----------
 function str(v, max, label, required = true) {
@@ -49,6 +51,7 @@ export function createActions(M, hooks) {
   function freshEmail(v, exceptId, required = false) {
     const em = email(v, required);
     if (em && S.people.some(p => p.id !== exceptId && (p.email || '').toLowerCase() === em)) no('That email is already in use.');
+    if (em && hooks.accounts.elsewhere?.(em)) no(ELSEWHERE);
     return em;
   }
   // Someone's name changed: carry it through every record that refers to them.
@@ -291,6 +294,7 @@ export function createActions(M, hooks) {
         if (nameInRecords(name)) return skipped.push(`${row}: ${name} matches someone who has left; add a last name or initial`);
         if (em && !EMAIL_RE.test(em)) return skipped.push(`${row}: ${em} is not a valid email`);
         if (em && (S.people.some(p => (p.email || '').toLowerCase() === em) || added.some(p => p.email === em))) return skipped.push(`${row}: ${em} is already in use`);
+        if (em && hooks.accounts.elsewhere?.(em)) return skipped.push(`${row}: ${em} belongs to another organization on this platform`);
         const sub = S.cfg.subs.find(x => x.toLowerCase() === get('sub').toLowerCase()) || '';
         if (get('sub') && !sub) return skipped.push(`${row}: "${get('sub')}" is not one of ${S.cfg.subs.join(', ')}`);
         const r2 = roleOf(get('role'));

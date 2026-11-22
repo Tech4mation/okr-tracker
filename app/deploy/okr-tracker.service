@@ -12,6 +12,8 @@ Environment=PORT=3000
 Environment=PUBLIC_URL=https://okr.example.com
 Environment=TRUST_PROXY=true
 Environment=TZ=Africa/Lagos
+# Name of the first organization (a fresh install, or the single-company data being upgraded)
+#Environment="FIRST_ORG_NAME=Example Ltd"
 # Email alerts (optional). Without these, alerts stay in the app.
 #Environment=SMTP_HOST=smtp.example.com
 #Environment=SMTP_PORT=587

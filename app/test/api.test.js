@@ -8,8 +8,10 @@ import path from 'node:path';
 import fs from 'node:fs';
 import {DatabaseSync} from 'node:sqlite';
 import {openDb, SCHEMA_V1} from '../src/db.js';
-import {createApp, setupLink} from '../src/app.js';
+import {createApp} from '../src/app.js';
+import {createOrg} from '../src/org.js';
 import {createSmtpTransport} from '../src/smtp.js';
+import {hashPassword, createSession} from '../src/auth.js';
 import {curWeek, curM, curY, today} from '../public/model.js';
 
 // A stand-in mail server that accepts everything and keeps what it was sent.
@@ -39,18 +41,18 @@ const smtp = net.createServer(sock => {
   sock.on('error', () => {});
 });
 
-let server, base, db, S, files;
+let server, base, S, O, dataDir;
 before(async () => {
   await new Promise(r => smtp.listen(0, '127.0.0.1', r));
-  files = fs.mkdtempSync(path.join(os.tmpdir(), 'okr-files-'));
-  db = openDb(':memory:');
+  dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'okr-data-'));
   const transport = createSmtpTransport({host: '127.0.0.1', port: smtp.address().port, user: 'u', pass: 'p', from: 'okr@example.com'});
-  server = createApp({db, filesDir: files, transport, log: {error() {}}});
+  server = createApp({dataDir, transport, firstOrgName: 'Acme', log: {error() {}}});
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${server.address().port}`;
-  S = server.okr.S;
+  O = [...server.okr.orgs.values()][0];   // a fresh install starts with one empty organization
+  S = O.S;
 });
-after(() => { server.closeAllConnections(); server.close(); smtp.close(); fs.rmSync(files, {recursive: true, force: true}); });
+after(() => { server.closeAllConnections(); server.close(); server.okr.close(); smtp.close(); fs.rmSync(dataDir, {recursive: true, force: true}); });
 
 // A signed-in browser: keeps its session cookie and can preview as someone (CEO only).
 function client() {
@@ -66,7 +68,7 @@ function client() {
     const type = res.headers.get('content-type') || '';
     return {status: res.status, headers: res.headers, data: type.includes('json') ? await res.json() : await res.text()};
   };
-  return {call, get: p => call('GET', p), post: (p, b = {}) => call('POST', p, b), as: id => { viewAs = id; }};
+  return {call, get: p => call('GET', p), post: (p, b = {}) => call('POST', p, b), as: id => { viewAs = id; }, cookie: v => v === undefined ? cookie : (cookie = v)};
 }
 const act = (c, a, args = {}) => c.post('/api/act', {a, args});
 async function ok(p) { const r = await p; assert.equal(r.status, 200, JSON.stringify(r.data)); return r.data; }
@@ -80,12 +82,12 @@ const W = curWeek();
 
 test('the setup link creates the CEO account once', async () => {
   await no(ceo.get('/api/state'), 401);
-  const token = tok(setupLink(db, base));
+  const token = tok(O.setupLink(base));
   await no(ceo.post('/api/setup', {token: 'wrong', name: 'Cleo Obi', email: 'cleo@x.co', password: 'password1'}));
   await ok(ceo.post('/api/setup', {token, name: 'Cleo Obi', email: 'cleo@x.co', password: 'password1'}));
   await no(client().post('/api/setup', {token, name: 'Eve', email: 'eve@x.co', password: 'password1'}));
   assert.equal(P('Cleo Obi').role, 'ceo');
-  assert.equal(setupLink(db, base), null);
+  assert.equal(O.setupLink(base), null);
 });
 
 test('writes without the app header are refused', async () => {
@@ -121,7 +123,7 @@ test('people sign in through invite links', async () => {
   assert.equal(reset.kind, 'reset'); assert.equal(reset.emailed, true);
   await no(hr.post(`/api/people/${P('Cleo Obi').id}/link`), 403);   // HR can't reset the CEO's password
   // Invites and reset links are emailed when email is set up, with the link in the body.
-  await server.okr.mailer.flush();
+  await O.mailer.flush();
   const body = m => Buffer.from(m.split('\r\n\r\n')[1] || '', 'base64').toString();
   const toAna = inbox.filter(m => m.includes('To: <ana@x.co>')).map(body);
   assert.ok(toAna.some(b => b.includes('/invite?token=')));
@@ -184,13 +186,13 @@ test('standup entries move the key results they are tied to (SU-1, SU-2, OK-4)',
   await ok(act(ana, 'stand.add', {text: 'Wrote guides', n: 5, unit: 'guides', link: `${o.id}|0`}));
   await ok(act(ana, 'stand.add', {text: 'Interviews', n: 4, link: `${o.id}|2`}));
   const x = S.stand.find(s => s.text === 'Wrote guides');
-  assert.equal(server.okr.M.krCur(o, o.krs[0], 0), 0);                   // not Done yet, so pending
+  assert.equal(O.M.krCur(o, o.krs[0], 0), 0);                   // not Done yet, so pending
   for (const c of [ben, mo, ceo]) await no(act(c, 'stand.status', {id: x.id, status: 'Done'}));   // only the owner
   await ok(act(ana, 'stand.status', {id: x.id, status: 'Done'}));
   await ok(act(ana, 'stand.status', {id: S.stand.find(s => s.text === 'Interviews').id, status: 'Done'}));
-  assert.equal(server.okr.M.krCur(o, o.krs[0], 0), 5);
-  assert.equal(server.okr.M.krCur(o, o.krs[2], 2), 4);                   // the monthly figure, this month only
-  assert.ok(['On track', 'At risk', 'Off track'].includes(server.okr.M.okrStatus(o)));
+  assert.equal(O.M.krCur(o, o.krs[0], 0), 5);
+  assert.equal(O.M.krCur(o, o.krs[2], 2), 4);                   // the monthly figure, this month only
+  assert.ok(['On track', 'At risk', 'Off track'].includes(O.M.okrStatus(o)));
   await ok(act(ana, 'wnote.save', {week: W, text: 'Blocked on design.'}));
   await no(act(ana, 'wnote.save', {week: '2999-01-07', text: 'future'}));
 });
@@ -243,7 +245,7 @@ test('leave goes to the line manager against a balance (WB-3)', async () => {
   const l = S.leave.find(x => x.owner === 'Ana Ade');
   for (const c of [ben, mia]) await no(act(c, 'leave.decide', {id: l.id, ok: true}));
   await ok(act(mo, 'leave.decide', {id: l.id, ok: true}));
-  assert.equal(server.okr.M.leaveBal('Ana Ade', 'Annual leave'), 22);
+  assert.equal(O.M.leaveBal('Ana Ade', 'Annual leave'), 22);
   await ok(act(ben, 'leave.add', {from: `${y}-12-01`, to: `${y}-12-02`, type: 'Unpaid leave'}));   // no allowance, no limit
 });
 
@@ -367,7 +369,7 @@ test('alerts are emailed, logged, batched daily and retried (NT-2, NT-3)', async
   inbox.length = 0;
   const o = S.okrs.find(x => x.owner === 'Ana Ade-Okon' && x.krs.length === 3);
   await ok(act(ana, 'kr.set', {id: o.id, i: 0, done: true}));
-  await server.okr.mailer.flush();
+  await O.mailer.flush();
   const mail = inbox.find(m => m.includes('To: <mo@x.co>'));
   assert.ok(mail, 'the line manager was emailed');
   // Settings can hold an alert back for the daily email instead.
@@ -375,17 +377,17 @@ test('alerts are emailed, logged, batched daily and retried (NT-2, NT-3)', async
   await ok(act(hr, 'cfg.save', {cfg: {...c, mail: {...c.mail, modes: {...c.mail.modes, krDecided: 'off'}}}, from}));
   inbox.length = 0;
   await ok(act(mo, 'kr.decide', {id: o.id, i: 0, ok: false}));
-  await server.okr.mailer.flush();
+  await O.mailer.flush();
   assert.ok(!inbox.some(m => m.includes('To: <ana@x.co>')));
   // One digest per person per day, on a weekday after the set hour.
-  const n = server.okr.mailer.runDigest(new Date(2026, 10, 4, 10));
+  const n = O.mailer.runDigest(new Date(2026, 10, 4, 10));
   assert.ok(n > 0);
-  assert.equal(server.okr.mailer.runDigest(new Date(2026, 10, 4, 11)), 0);
-  assert.equal(server.okr.mailer.runDigest(new Date(2026, 10, 7, 10)), 0);   // a Saturday
+  assert.equal(O.mailer.runDigest(new Date(2026, 10, 4, 11)), 0);
+  assert.equal(O.mailer.runDigest(new Date(2026, 10, 7, 10)), 0);   // a Saturday
   // A failed send is retried rather than lost, and HR can see it.
   failMail = true;
   await ok(act(ana, 'kr.set', {id: o.id, i: 0, done: true}));
-  await server.okr.mailer.flush();
+  await O.mailer.flush();
   failMail = false;
   const rep = await ok(hr.get('/api/mail'));
   assert.ok(rep.rows.some(r => r.status === 'queued' && r.attempts === 1 && /554/.test(r.error)));
@@ -410,15 +412,15 @@ test('onboarding tasks from earlier builds pass from the new starter to the line
   put('tmpl', {id: 't1', name: 'Default', sub: '', tasks: [{t: 'Meet people', who: 'New hire', off: 3}, {t: 'Contract', who: 'HR', off: -7}]});
   put('onb', {id: 'o1', owner: 'Zed', start: '2026-11-01', sub: '', from: 'Default', tasks: [{t: 'Meet people', who: 'New hire', off: 3, done: false, by: '', at: 0}]});
   put('cfg', {id: 'cfg', onbWho: ['HR', 'Manager', 'New hire'], reqExec: 1, execAt: 5});
-  const s2 = createApp({db: d2, log: {error() {}}});
-  const S2 = s2.okr.S;
+  const s2 = createOrg({id: 'old1', db: d2, log: {error() {}}});
+  const S2 = s2.S;
   assert.equal(S2.tmpl[0].tasks[0].who, 'Manager');
   assert.equal(S2.onb[0].tasks[0].who, 'Manager');
   assert.deepEqual(S2.cfg.onbWho, ['HR', 'Manager']);
   assert.equal(S2.cfg.reqExec, undefined); assert.equal(S2.cfg.execAll, 0);
   // and it was saved, not just fixed in memory
   assert.equal(JSON.parse(d2.prepare("SELECT data FROM docs WHERE col = 'tmpl'").get().data).tasks[0].who, 'Manager');
-  s2.okr.close();
+  s2.close();
 });
 
 test('a version 1 database is upgraded and keeps its goals', () => {
@@ -441,4 +443,124 @@ test('a version 1 database is upgraded and keeps its goals', () => {
   assert.ok(!up.prepare("SELECT 1 FROM sqlite_master WHERE name = 'prios'").get());
   up.close();
   fs.rmSync(file, {force: true}); fs.rmSync(file + '-wal', {force: true}); fs.rmSync(file + '-shm', {force: true});
+});
+
+// ---------- several organizations on one platform (TPD-1888) ----------
+const bola = client();
+let B;
+test('a second organization starts empty and signs in at the same address', async () => {
+  B = server.okr.addOrg('Beta Ltd');
+  await ok(bola.post('/api/setup', {token: tok(B.setupLink(base)), name: 'Bola Ojo', email: 'bola@beta.co', password: 'password1'}));
+  const s = await state(bola);
+  assert.deepEqual(s.people.map(p => p.name), ['Bola Ojo']);
+  assert.deepEqual([s.okrs.length, s.reviews.length, s.leave.length, s.docs.length], [0, 0, 0, 0]);
+  // Signing in with an email lands in that email's organization.
+  const again = client();
+  await ok(again.post('/api/login', {email: 'BOLA@beta.co', password: 'password1'}));
+  assert.equal((await ok(again.get('/api/state'))).realId, B.S.people[0].id);
+  await no(client().post('/api/login', {email: 'bola@beta.co', password: 'password2'}), 401);
+  assert.ok((await state(ceo)).people.some(p => p.name === 'Mo Bello'));
+  assert.ok(!(await state(ceo)).people.some(p => p.name === 'Bola Ojo'));
+});
+
+test('an email address belongs to one organization', async () => {
+  const elsewhere = /another organization/;
+  assert.match((await no(act(bola, 'person.add', {name: 'Mo Again', email: 'mo@x.co', role: 'member'}))).error, elsewhere);
+  assert.match((await no(act(hr, 'person.add', {name: 'Bola Again', email: 'bola@beta.co', role: 'member'}))).error, elsewhere);
+  const imp = await ok(act(bola, 'people.import', {text: 'Name,Email\nAna Copy,ana@x.co\nNell Beta,nell@beta.co'}));
+  assert.equal(imp.added, 1); assert.match(imp.skipped[0], elsewhere);
+  // A person without an account yet still holds their address.
+  assert.match((await no(act(hr, 'person.add', {name: 'Nell Acme', email: 'nell@beta.co', role: 'member'}))).error, elsewhere);
+  // A CEO can't set up a new organization with an address that is already taken.
+  const C = server.okr.addOrg('Gamma');
+  assert.match((await no(client().post('/api/setup', {token: tok(C.setupLink(base)), name: 'Gil Uba', email: 'hana@x.co', password: 'password1'}), 409)).error, elsewhere);
+  // An address frees up when its person is removed: Cal Eze left the first organization earlier.
+  await ok(act(bola, 'person.add', {name: 'Cal Eze', email: 'cal@x.co', role: 'member'}));
+});
+
+test('cookies, links, files, previews and email never cross organizations', async () => {
+  // A document in the first organization can't be fetched from the second.
+  const d = S.docs.find(x => x.owner === 'Ben Uche');
+  await no(bola.get(`/api/docs/${d.id}/file`), 404);
+  // An invite link names its organization; relabelled for another one, it does nothing.
+  await ok(act(hr, 'person.add', {name: 'Ivy Inv', email: 'ivy@x.co', role: 'member'}));
+  const t = tok((await ok(hr.post(`/api/people/${P('Ivy Inv').id}/link`))).url), raw = t.slice(t.indexOf('.') + 1);
+  assert.equal(t.slice(0, t.indexOf('.')), O.id);
+  await no(client().post('/api/link', {kind: 'invite', token: `${B.id}.${raw}`}));
+  await no(client().post('/api/invite', {token: `${B.id}.${raw}`, password: 'password1'}));
+  await no(client().post('/api/link', {kind: 'invite', token: `zzzz.${raw}`}));
+  assert.equal((await ok(client().post('/api/link', {kind: 'invite', token: t}))).name, 'Ivy Inv');
+  // A session cookie relabelled for another organization signs nobody in.
+  const v = decodeURIComponent(ceo.cookie().split('=')[1]), forged = client();
+  assert.equal(v.slice(0, v.indexOf('.')), O.id);
+  forged.cookie('okr_session=' + encodeURIComponent(`${B.id}.${v.slice(v.indexOf('.') + 1)}`));
+  await no(forged.get('/api/state'), 401);
+  // The CEO's preview stays inside their own organization.
+  ceo.as(B.S.people[0].id);
+  assert.equal((await ok(ceo.get('/api/state'))).effId, P('Cleo Obi').id);
+  ceo.as(null);
+  // Email goes out from the organization it belongs to, and only that organization's log shows it.
+  inbox.length = 0;
+  const nell = B.S.people.find(p => p.name === 'Nell Beta');
+  assert.equal((await ok(bola.post(`/api/people/${nell.id}/link`))).emailed, true);
+  await B.mailer.flush();
+  assert.ok(inbox.some(m => m.includes('To: <nell@beta.co>')));
+  assert.ok((await ok(bola.get('/api/mail'))).rows.some(r => r.email === 'nell@beta.co'));
+  assert.ok(!(await ok(hr.get('/api/mail'))).rows.some(r => r.email === 'nell@beta.co'));
+});
+
+test('live updates reach only the organization that changed', async () => {
+  const listen = async c => {
+    const res = await fetch(base + '/api/events', {headers: {cookie: c.cookie()}});
+    assert.equal(res.status, 200);
+    const reader = res.body.getReader();
+    let got = '';
+    (async () => { try { for (;;) { const {value, done} = await reader.read(); if (done) break; got += Buffer.from(value).toString(); } } catch { /* closed */ } })();
+    return {seen: () => got.includes('data: change'), stop: () => reader.cancel().catch(() => {})};
+  };
+  const a = await listen(ana), b = await listen(bola);
+  await ok(act(bola, 'stand.add', {text: 'Set up Beta'}));
+  await new Promise(r => setTimeout(r, 150));
+  assert.equal(b.seen(), true); assert.equal(a.seen(), false);
+  await ok(act(ana, 'stand.add', {text: 'Back at Acme'}));
+  await new Promise(r => setTimeout(r, 150));
+  assert.equal(a.seen(), true);
+  await a.stop(); await b.stop();
+  await no(client().get('/api/events'), 401);
+});
+
+test('the single-company data folder from before becomes the first organization, intact', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'okr-legacy-'));
+  const old = openDb(path.join(dir, 'okr-tracker.db'));
+  old.prepare("INSERT INTO users (id, email, name, pass_hash, created_at) VALUES (1, 'boss@old.co', 'Old Boss', ?, 1000)").run(await hashPassword('password1'));
+  old.prepare("INSERT INTO docs (col, id, data) VALUES ('people', 'p1', ?)").run(JSON.stringify({id: 'p1', name: 'Old Boss', email: 'boss@old.co', role: 'ceo', sub: '', team: '',
+    mgr: null, title: '', joined: '2026-01-01', jd: [], contract: '', notice: '', uid: '1'}));
+  old.prepare("INSERT INTO docs (col, id, data) VALUES ('okrs', 'o1', ?)").run(JSON.stringify({id: 'o1', objective: 'Keep going', owner: 'Old Boss', sub: '', year: curY(), updates: [],
+    krs: [{title: 'A', pct: 0, type: 'binary'}, {title: 'B', pct: 0, type: 'binary'}]}));
+  const session = createSession(old, 1);
+  old.close();
+  fs.mkdirSync(path.join(dir, 'files')); fs.writeFileSync(path.join(dir, 'files', 'd1'), 'kept');
+  const s2 = createApp({dataDir: dir, firstOrgName: 'Old Co', log: {error() {}}});
+  await new Promise(r => s2.listen(0, '127.0.0.1', r));
+  const b2 = `http://127.0.0.1:${s2.address().port}`;
+  const orgs = s2.okr.platform.list();
+  assert.deepEqual(orgs.map(r => [r.name, r.status]), [['Old Co', 'active']]);
+  const id = orgs[0].id;
+  assert.ok(fs.existsSync(path.join(dir, 'orgs', id, 'okr.db')));
+  assert.equal(fs.readFileSync(path.join(dir, 'orgs', id, 'files', 'd1'), 'utf8'), 'kept');
+  assert.ok(!fs.existsSync(path.join(dir, 'okr-tracker.db')) && fs.existsSync(path.join(dir, `okr-tracker.db.moved-to-${id}`)));
+  // Someone signed in before the move stays signed in: their cookie has no organization in it.
+  const r = await fetch(b2 + '/api/state', {headers: {cookie: `okr_session=${session}`}});
+  assert.equal(r.status, 200);
+  const st = await r.json();
+  assert.equal(st.real.name, 'Old Boss'); assert.ok(st.S.okrs.some(o => o.objective === 'Keep going'));
+  const login = await fetch(b2 + '/api/login', {method: 'POST', headers: {'X-OKR': '1', 'Content-Type': 'application/json'}, body: JSON.stringify({email: 'boss@old.co', password: 'password1'})});
+  assert.equal(login.status, 200);
+  assert.ok(decodeURIComponent(login.headers.get('set-cookie')).startsWith(`okr_session=${id}.`));
+  s2.closeAllConnections(); s2.close(); s2.okr.close();
+  // The next start finds nothing left to move.
+  const s3 = createApp({dataDir: dir, log: {error() {}}});
+  assert.deepEqual(s3.okr.platform.list().map(x => x.id), [id]);
+  s3.okr.close();
+  fs.rmSync(dir, {recursive: true, force: true});
 });
