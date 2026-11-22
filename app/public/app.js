@@ -32,7 +32,7 @@ let wk = curWeek(), tab = 'dash', confirmDel = null;
 let draft = {owner: null, obj: '', krs: ['', ''], ms: [null, null], kt: ['binary', 'binary'], tg: ['', ''], un: ['', '']}, showForm = false, navOpen = false;
 let editing = null, okrUpd = null, krOpen = null, ciSeg = 'week', histM = null, perfSeg = 'now', apFrom = '', apTo = '', okrTab = null, standWho = null, revWho = null,
   dossier = null, perfTab = 'all', dirView = 'table', openRev = null, openRole = null, hireTab = 'open', fillR = null, declR = null, sbR = null, closeR = null, editR = null,
-  imp = null, tdraft = null, cfgDraft = null, mailRep = null, cycleForm = false, empEdit = false, linkOut = null;
+  imp = null, tdraft = null, cfgDraft = null, mailRep = null, cycleForm = false, empEdit = false, linkOut = null, welfEdit = false;
 
 const realMe = () => ST && S.people.find(p => p.id === ST.realId) || null;
 const eff = () => ST && S.people.find(p => p.id === ST.effId) || realMe();
@@ -818,15 +818,19 @@ function viewWelf(e) {
         ${sv.closed ? `<button class="btn quiet sm" data-act="reopensurvey">Reopen</button>` : `<button class="btn quiet sm" data-act="closesurvey">Close it</button>`}</div>`}</section>` : '';
   return `<div class="row between"><p class="sub" style="margin:0">A weekly check-in on workload and wellbeing. Managers and HR see their own people.</p><div class="row">${weekNav()}${team ? expBtn('welf') : ''}</div></div>
   ${svCard}
-  ${(!sv || sv.closed) && !isGroup(e) ? `<div class="card">${empty(sv ? 'This week\'s check-in is closed.' : 'No check-in has been sent for this week yet.')}</div>` : ''}
-  ${own ? `<form class="card" data-submit="savewelf"><div class="sec-h"><h2 style="font-size:16px">${mine ? 'Your check-in this week' : 'How is this week going?'}</h2>${mine ? chip('Sent ' + dateShort(mine.ts), 'good') : ''}</div>
+  ${(!sv || sv.closed) && !isGroup(e) && !mine ? `<div class="card">${empty(sv ? 'This week\'s check-in is closed.' : 'No check-in has been sent for this week yet.')}</div>` : ''}
+  ${mine && !(own && welfEdit) ? `<section class="card"><div class="sec-h"><h2 style="font-size:16px">Your check-in${wk === curWeek() ? ' this week' : ''}</h2>${chip('Sent ' + dateShort(mine.ts), 'good')}</div>
+    <p style="margin:0">${esc(WLOAD[mine.workload])} workload · feeling ${esc(MOOD[mine.mood].toLowerCase())}</p>
+    ${mine.note ? `<p class="sub" style="margin:0">“${esc(mine.note)}”</p>` : ''}
+    <div class="row between"><span class="sub">Done for the week. ${esc(approverOf({owner: e.name}))} and HR can read your answers.</span>${own ? '<button class="btn ghost sm" data-act="editwelf" data-v="1">Change it</button>' : ''}</div></section>` : ''}
+  ${own && (!mine || welfEdit) ? `<form class="card" data-submit="savewelf"><div class="sec-h"><h2 style="font-size:16px">${mine ? 'Your check-in this week' : 'How is this week going?'}</h2>${mine ? chip('Sent ' + dateShort(mine.ts), 'good') : ''}</div>
     <p class="sub" style="margin:0">Two questions, once a week. ${esc(approverOf({owner: e.name}))} and HR can read your answers.</p>
     <div class="row" style="align-items:flex-end">${scale('wf-load', 'How heavy was your workload?', WLOAD, mine?.workload || 3)}${scale('wf-mood', 'How are you doing?', MOOD, mine?.mood || 4)}</div>
     <label class="f"><span>Anything you want to flag? <span class="sub">(optional)</span></span><input type="text" id="wf-note" value="${esc(mine?.note || '')}" placeholder="Blockers, workload, anything you need" maxlength="500"></label>
     ${!enpsAsked(e.name) || mine?.enps != null ? `<div class="askonce"><label class="f" for="wf-enps">How likely are you to recommend working here, to someone looking for a job?</label>
       <div class="row"><span class="sub">Not at all likely</span><select id="wf-enps"><option value="">Rather not say</option>${Array.from({length: 11}, (_, i) => `<option value="${i}"${mine?.enps === i ? ' selected' : ''}>${i}</option>`).join('')}</select><span class="sub">Extremely likely</span>
       <span class="sub">· asked every ${S.cfg.enpsDays} days</span></div></div>` : '<input type="hidden" id="wf-enps" value="">'}
-    <div class="row"><button class="btn" type="submit">${mine ? 'Update check-in' : 'Send check-in'}</button></div></form>` : ''}
+    <div class="row"><button class="btn" type="submit">${mine ? 'Update check-in' : 'Send check-in'}</button>${mine ? '<button class="btn quiet" type="button" data-act="editwelf" data-v="0">Cancel</button>' : ''}</div></form>` : ''}
   ${team ? `<div class="stats">${stat('ros', 'Needs attention', need, need ? 'Heavy workload or a low score' : 'Nobody flagged this week', null, 'ci')}
     ${stat('tea', 'Checked in', rows.filter(r => r.w).length + '/' + rows.length, 'People who answered this week', null, 'ci')}
     ${stat('ind', 'Average workload', avg == null ? '—' : fmt(avg) + '/5', avg == null ? 'No check-ins yet' : WLOAD[Math.round(avg)], null, 'ci')}
@@ -1225,7 +1229,8 @@ root.addEventListener('click', ev => {
   if (a === 'tab') go(b.dataset.t);
   else if (a === 'menu') navOpen = !navOpen;
   else if (a === 'closenav') navOpen = false;
-  else if (a === 'wk') { const n = +b.dataset.n; if (n === 0) wk = curWeek(); else { const d = parseIso(wk); d.setDate(d.getDate() + 7 * n); const nw = iso(d); wk = nw > curWeek() ? curWeek() : nw; } }
+  else if (a === 'editwelf') welfEdit = b.dataset.v === '1';
+  else if (a === 'wk') { welfEdit = false; const n = +b.dataset.n; if (n === 0) wk = curWeek(); else { const d = parseIso(wk); d.setDate(d.getDate() + 7 * n); const nw = iso(d); wk = nw > curWeek() ? curWeek() : nw; } }
   else if (a === 'newokr') showForm = !showForm;
   else if (a === 'krdone') act('kr.set', {id: b.dataset.o, i, done: b.dataset.v === '1'});
   else if (a === 'askdel') confirmDel = id;
@@ -1413,7 +1418,7 @@ root.addEventListener('submit', ev => {
   else if (f === 'saveack') act('review.ack', {text: val('rv-ack')});
   else if (f === 'opencycle') act('cycle.open', {name: val('cy-name'), from: val('cy-from'), to: val('cy-to'), due: val('cy-due')}).then(r => { if (r) { cycleForm = false; render(); } });
   else if (f === 'addleave') act('leave.add', {from: val('lv-from'), to: val('lv-to'), type: val('lv-type')}).then(r => { if (r) { clear('lv-from', 'lv-to'); render(); } });
-  else if (f === 'savewelf') act('welfare.save', {week: wk, workload: val('wf-load'), mood: val('wf-mood'), note: val('wf-note'), enps: val('wf-enps')});
+  else if (f === 'savewelf') act('welfare.save', {week: wk, workload: val('wf-load'), mood: val('wf-mood'), note: val('wf-note'), enps: val('wf-enps')}).then(r => { if (r) { welfEdit = false; render(); } });
   else if (f === 'savenote-hr') act('hrnote.save', {id: dossier, action: val('hr-act'), text: val('hr-note')});
   else if (f === 'saveemp') act('person.employment', {id: dossier, title: val('em-title'), contract: val('em-contract'), notice: val('em-notice'), joined: val('em-joined'), review: val('em-review'),
       salary: val('em-salary'), jd: val('em-jd').split('\n')}).then(r => {
