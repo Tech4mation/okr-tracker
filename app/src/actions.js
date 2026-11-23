@@ -1,7 +1,7 @@
 // Every change anyone can make, as a named action the server runs against its own copy of the data.
 // The page calls these by name; nothing it sends is trusted. Each action re-checks who may do it, using the
 // same rules the page uses to decide which buttons to show (public/model.js), so the two cannot drift apart.
-import {COLS, ROLES, SSTAT, KRTYPE, RKIND, HR_ACTIONS, ALERTS, ALERT_MODES, EMAIL_RE, CFG0, uuid, today, curWeek, curM, curY,
+import {COLS, SUB_TONES, freeTone, ROLES, SSTAT, KRTYPE, RKIND, HR_ACTIONS, ALERTS, ALERT_MODES, EMAIL_RE, CFG0, uuid, today, curWeek, curM, curY,
   parseIso, isIsoDate, isWeek, plural, parseCsv} from '../public/model.js';
 import {sampleRecords} from './sample.js';
 
@@ -357,6 +357,11 @@ export function createActions(M, hooks) {
       const subs = list(c.subs, old.subs, 'Subsidiary', 40, a.from?.subs, x => S.people.some(p => p.sub === x) || S.okrs.some(o => o.sub === x) || S.roles.some(r => r.sub === x) || S.tmpl.some(t => t.sub === x),
         (o2, n) => { S.people.forEach(p => { if (p.sub === o2) p.sub = n; }); S.okrs.forEach(o => { if (o.sub === o2) o.sub = n; });
           S.roles.forEach(r => { if (r.sub === o2) r.sub = n; }); S.tmpl.forEach(t => { if (t.sub === o2) t.sub = n; }); S.onb.forEach(t => { if (t.sub === o2) t.sub = n; }); }, 0);
+      // TPD-1891: each subsidiary's colour, sent in the same order as the names. A colour that isn't sent stays with
+      // its subsidiary through a rename; a new subsidiary without one gets a colour nobody else has, where possible.
+      const tones = arr(c.subTones), valid = SUB_TONES.map(x => x[0]), oldTone = old.subTone || {}, subTone = {};
+      subs.forEach((n, i) => { const t = valid.includes(tones[i]) ? tones[i] : oldTone[n] || oldTone[arr(a.from?.subs)[i]]; if (t) subTone[n] = t; });
+      subs.forEach(n => { if (!subTone[n]) subTone[n] = freeTone(Object.values(subTone)); });
       const lt = arr(c.leave);
       const leaveTypes = list(lt.map(x => x && x.type), old.leave.map(x => x.type), 'Leave type', 40, a.from?.leave, x => S.leave.some(l => l.type === x), (o2, n) => S.leave.forEach(l => { if (l.type === o2) l.type = n; }));
       const etypes = list(c.etypes, old.etypes, 'Contract type', 40, a.from?.etypes, x => S.roles.some(r => r.etype === x), (o2, n) => S.roles.forEach(r => { if (r.etype === o2) r.etype = n; }));
@@ -367,7 +372,7 @@ export function createActions(M, hooks) {
       const m = c.mail && typeof c.mail === 'object' ? c.mail : {};
       const modes = {}; Object.keys(ALERTS).forEach(k => { modes[k] = oneOf(m.modes?.[k] ?? old.mail.modes[k], ALERT_MODES.map(x => x[0]), 'email timing'); });
       // TPD-1890: the company's own name (the page title, the sidebar, emails) and an optional Monday reminder.
-      const next = {company: str(c.company, 80, 'The company name'), monNote: str(c.monNote, 200, 'The Monday reminder', false), subs, etypes, closeWhy, onbWho,
+      const next = {company: str(c.company, 80, 'The company name'), monNote: str(c.monNote, 200, 'The Monday reminder', false), subs, subTone, etypes, closeWhy, onbWho,
         leave: leaveTypes.map((type, i) => ({type, days: int(lt[i]?.days ?? 0, 0, 365, `Days for ${type}`)})),
         cur: str(c.cur, 3, 'The money symbol') || old.cur, reqMgr: c.reqMgr ? 1 : 0, execAll: c.execAll ? 1 : 0,
         yearStart: int(c.yearStart, 0, 11, 'The goal year start'), staleDays: int(c.staleDays, 1, 365, 'The chasing window'),

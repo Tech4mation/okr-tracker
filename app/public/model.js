@@ -24,7 +24,15 @@ export const REVST = {none: ['Not started', ''], self: ['Self-review in', 'warn'
   shared: ['Awaiting sign-off', 'warn'], ack: ['Signed off', 'good']};
 export const WLOAD = ['', 'Very light', 'Light', 'Steady', 'Heavy', 'Too much'];
 export const MOOD = ['', 'Struggling', 'Low', 'Okay', 'Good', 'Great'];
-export const SUB_TONE = {'NativeTalk': 'sky', 'Connect': 'tea', 'Cyber Villa': 'vio'};
+// TPD-1891: the colours a subsidiary can have, in the order new subsidiaries take them. Each organization keeps its
+// own choice per subsidiary in settings (cfg.subTone). The first three names keep the colours they always had.
+export const SUB_TONES = [['sky', 'Sky blue'], ['tea', 'Teal'], ['vio', 'Violet'], ['amb', 'Amber'], ['acc', 'Indigo'], ['ros', 'Rose']];
+export const LEGACY_SUB_TONE = {'NativeTalk': 'sky', 'Connect': 'tea', 'Cyber Villa': 'vio'};
+// The colour for a new subsidiary: one no other subsidiary has, otherwise the least used.
+export function freeTone(taken) {
+  const n = t => taken.filter(x => x === t).length, all = SUB_TONES.map(x => x[0]);
+  return all.reduce((best, t) => n(t) < n(best) ? t : best, all[0]);
+}
 export const HR_ACTIONS = ['Offering support', 'Performance improvement plan', 'Ready for more responsibility'];
 // Who does what, and by when, counted in days from the start date. The new starter has no tasks of their own:
 // HR and their line manager carry the checklist.
@@ -61,7 +69,7 @@ export const ALERT_MODES = [['now', 'In the app and by email straight away'], ['
 // and common starting lists it can change.
 export const CFG0 = () => ({
   company: '', monNote: '',
-  subs: [],
+  subs: [], subTone: {},
   leave: [{type: 'Annual leave', days: 25}, {type: 'Sick leave', days: 10}, {type: 'Compassionate leave', days: 5}, {type: 'Unpaid leave', days: 0}],
   yearStart: 0, staleDays: 14, riskAt: 80, behindAt: 60, aheadAt: 110,
   standupWeeks: 2, enpsDays: 28, reviewDueDays: 21, onbWho: ['HR', 'Manager'],

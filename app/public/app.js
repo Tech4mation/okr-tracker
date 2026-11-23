@@ -1,7 +1,7 @@
 // Team OKR Tracker page, PRD v1.1. The screens are the product lead's prototype; what changed is where the data
 // lives. The server sends only what the signed-in person may see, and every change goes to the server as a named
 // action that it re-checks. The rules shared with the server (model.js) decide which controls to show.
-import {ROLES, SSTAT, KRTYPE, OKRST, OKRST_TONE, OUTCOME, BAND, RTONE, RKIND, DOCST, FBTONE, RATINGS, REVST, WLOAD, MOOD, SUB_TONE, HR_ACTIONS,
+import {ROLES, SSTAT, KRTYPE, OKRST, OKRST_TONE, OUTCOME, BAND, RTONE, RKIND, DOCST, FBTONE, RATINGS, REVST, WLOAD, MOOD, SUB_TONES, HR_ACTIONS,
   ALERTS, ALERT_MODES, MON, MONFULL, iso, parseIso, curWeek, today, shiftDay, fmt, fn, r0, curM, curY, dateShort, plural,
   toCsv, createModel} from './model.js';
 
@@ -22,6 +22,8 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '
 const dayLabel = d => { const x = parseIso(d); return d === today() ? 'Today' : d === shiftDay(today(), -1) ? 'Yesterday' : x.toLocaleDateString(undefined, {weekday: 'long', day: 'numeric', month: 'short'}); };
 const monOpts = sel => MONFULL.map((m, i) => `<option value="${i}"${sel === i ? ' selected' : ''}>${m}</option>`).join('');
 const subs = () => S.cfg.subs;
+// A subsidiary's colour, as chosen in Settings (TPD-1891).
+const subTone = n => S.cfg.subTone?.[n] || '';
 
 // ---------- page state ----------
 let ST = null, phase = 'boot', authMsg = '', link = null, viewAs = null, signupOpen = false, signupSent = '';
@@ -169,6 +171,7 @@ const expBtn = kind => `<button class="btn quiet sm" data-act="export" data-x="$
 // ---------- settings draft: edited on the page, sent whole when saved ----------
 function startCfgDraft() {
   const c = JSON.parse(JSON.stringify(S.cfg));
+  c.subTones = c.subs.map(n => c.subTone?.[n] || '');
   cfgDraft = {c, from: {subs: [...c.subs], leave: c.leave.map(x => x.type), etypes: [...c.etypes], closeWhy: [...c.closeWhy], onbWho: [...c.onbWho]}};
 }
 function readCfg() {
@@ -176,6 +179,7 @@ function readCfg() {
   const c = cfgDraft.c, g = id => document.getElementById(id);
   if (!g('cf-stale')) return;
   c.subs = c.subs.map((x, i) => g('cf-sub-' + i) ? g('cf-sub-' + i).value.trim() : x);
+  c.subTones = c.subs.map((_, i) => g('cf-st-' + i) ? g('cf-st-' + i).value : c.subTones[i] || '');
   c.leave = c.leave.map((x, i) => ({type: g('cf-lt-' + i) ? g('cf-lt-' + i).value.trim() : x.type, days: g('cf-ld-' + i) ? Math.max(0, +g('cf-ld-' + i).value || 0) : x.days}));
   c.onbWho = c.onbWho.map((x, i) => g('cf-ow-' + i) ? g('cf-ow-' + i).value.trim() : x);
   c.etypes = c.etypes.map((x, i) => g('cf-et-' + i) ? g('cf-et-' + i).value.trim() : x);
@@ -189,8 +193,8 @@ function readCfg() {
   Object.keys(ALERTS).forEach(k => { if (g('cf-mm-' + k)) c.mail.modes[k] = g('cf-mm-' + k).value; });
 }
 let draftMoved = false;
-function cfgList(key, add) { readCfg(); cfgDraft.c[key].push(add); cfgDraft.from[key].push(null); draftMoved = true; }
-function cfgRemove(key, i) { readCfg(); cfgDraft.c[key].splice(i, 1); cfgDraft.from[key].splice(i, 1); draftMoved = true; }
+function cfgList(key, add) { readCfg(); cfgDraft.c[key].push(add); cfgDraft.from[key].push(null); if (key === 'subs') cfgDraft.c.subTones.push(''); draftMoved = true; }
+function cfgRemove(key, i) { readCfg(); cfgDraft.c[key].splice(i, 1); cfgDraft.from[key].splice(i, 1); if (key === 'subs') cfgDraft.c.subTones.splice(i, 1); draftMoved = true; }
 function readTmpl() {
   if (!tdraft) return;
   tdraft.name = val('tn'); tdraft.sub = val('ts');
@@ -592,7 +596,7 @@ function viewHire(e) {
   <div class="seg" role="tablist" aria-label="Role status">${segs.map(([v, l, c]) => `<button role="tab" aria-selected="${hireTab === v}" data-act="hiretab" data-v="${v}">${l}<span class="seg-n">${c}</span></button>`).join('')}</div>
   ${hireTab === 'tmpl' && isGroup(e) ? `
     <p class="sub" style="margin:0">A new starter gets the checklist for their subsidiary, or the default when there is none. Changing a checklist does not alter anyone already onboarding.</p>
-    ${tdraft ? `<form class="card" data-submit="savetmpl"><div class="sec-h"><h2 style="font-size:16px">${esc(tdraft.id ? 'Edit checklist' : 'New checklist')}</h2>${tdraft.id && tdraft.sub ? chip(tdraft.sub, SUB_TONE[tdraft.sub] || '') : ''}</div>
+    ${tdraft ? `<form class="card" data-submit="savetmpl"><div class="sec-h"><h2 style="font-size:16px">${esc(tdraft.id ? 'Edit checklist' : 'New checklist')}</h2>${tdraft.id && tdraft.sub ? chip(tdraft.sub, subTone(tdraft.sub)) : ''}</div>
       <div class="row"><label class="f grow" style="flex-basis:220px">Name<input type="text" id="tn" value="${esc(tdraft.name)}" placeholder="e.g. Connect starter" maxlength="80"></label>
         <label class="f">Applies to<select id="ts"><option value="">Everyone (default)</option>${subs().map(x => `<option${tdraft.sub === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select></label></div>
       <div style="display:flex;flex-direction:column;gap:6px"><span class="lbl">Tasks</span>
@@ -605,7 +609,7 @@ function viewHire(e) {
       <div class="row"><button class="btn" type="submit">Save checklist</button><button type="button" class="btn quiet" data-act="canceltmpl">Cancel</button>
         ${tdraft.id && tdraft.sub ? `<button type="button" class="btn quiet" data-act="deltmpl" data-id="${tdraft.id}">Delete</button>` : ''}</div></form>`
       : `<div class="row"><button class="btn" data-act="newtmpl">+ New checklist</button></div>`}
-    ${S.tmpl.length ? S.tmpl.map(tp => `<section class="card"><div class="sec-h"><h2>${esc(tp.name)}</h2><div class="person-h">${tp.sub ? chip(tp.sub, SUB_TONE[tp.sub] || '') : chip('Default')}${chip(plural(tp.tasks.length, 'task', 'tasks'))}<button class="btn quiet sm" data-act="edittmpl" data-id="${tp.id}">Edit</button></div></div>
+    ${S.tmpl.length ? S.tmpl.map(tp => `<section class="card"><div class="sec-h"><h2>${esc(tp.name)}</h2><div class="person-h">${tp.sub ? chip(tp.sub, subTone(tp.sub)) : chip('Default')}${chip(plural(tp.tasks.length, 'task', 'tasks'))}<button class="btn quiet sm" data-act="edittmpl" data-id="${tp.id}">Edit</button></div></div>
       <div class="list">${[...tp.tasks].sort((a, b) => a.off - b.off).map(t => `<div class="kr"><div class="t">${esc(t.t)}<div class="sub">${esc(t.who)} · ${t.off < 0 ? Math.abs(t.off) + ' days before start' : t.off === 0 ? 'on day one' : 'day ' + t.off}</div></div></div>`).join('')}</div></section>`).join('')
       : `<div class="card">${empty('No checklists saved yet. New starters get the built-in default until you save one.')}</div>`}
   ` : hireTab === 'onb' ? (mineOnb.length ? mineOnb.map(o => { const p = person(o.owner), late = o.tasks.filter(t => onbLate(o, t)).length;
@@ -1029,10 +1033,11 @@ function viewSet(e) {
       <label class="f grow" style="flex-basis:320px"><span>Monday reminder <span class="sub">(optional)</span></span><input type="text" id="cf-monnote" value="${esc(c.monNote || '')}" maxlength="200" placeholder="For example: all-hands call at 9:00 AM"><span class="sub">Shown on everyone's dashboard on Mondays</span></label></div></section>
   <section class="card"><div class="sec-h"><h2>Subsidiaries</h2><span class="sub">${plural(c.subs.length, 'subsidiary', 'subsidiaries')}</span></div>
     <div class="list">${c.subs.map((x, i) => { const inUse = was('subs', i) && S.people.some(p => p.sub === was('subs', i));
+      const t = c.subTones[i] || '';
       return `<div class="kr"><div class="t"><input type="text" id="cf-sub-${i}" value="${esc(x)}" aria-label="Subsidiary ${i + 1}" maxlength="40"></div>
-      <div class="acts"><span class="sub">${plural(was('subs', i) ? S.people.filter(p => p.sub === was('subs', i)).length : 0, 'person', 'people')}</span>
+      <div class="acts">${chip(x || 'New', t)}<select id="cf-st-${i}" class="sm" data-chg="subtone" aria-label="Colour for ${esc(x || 'the new subsidiary')}">${t ? '' : '<option value="" selected>Automatic</option>'}${SUB_TONES.map(([v, l]) => `<option value="${v}"${t === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select><span class="sub">${plural(was('subs', i) ? S.people.filter(p => p.sub === was('subs', i)).length : 0, 'person', 'people')}</span>
         ${inUse ? '<span class="sub">in use</span>' : `<button class="btn quiet sm" data-act="rmcfg" data-k="subs" data-i="${i}">Remove</button>`}</div></div>`; }).join('')}</div>
-    <div class="row"><button class="btn ghost sm" data-act="addcfg" data-k="subs">+ Add subsidiary</button><span class="sub">Renaming one moves everyone and everything on it. A subsidiary in use cannot be removed.</span></div></section>
+    <div class="row"><button class="btn ghost sm" data-act="addcfg" data-k="subs">+ Add subsidiary</button><span class="sub">Renaming one moves everyone and everything on it, and keeps its colour. A subsidiary in use cannot be removed.</span></div></section>
 
   <section class="card"><div class="sec-h"><h2>Goal year and chasing</h2></div>
     <div class="row" style="align-items:flex-start">
@@ -1156,7 +1161,7 @@ function viewPeople(e) {
     <td><select id="pr-m-${p.id}" aria-label="Reports to"><option value="">Nobody</option>${S.people.filter(x => x.id !== p.id && !reportsTo(x, p)).sort((a, b) => a.name.localeCompare(b.name)).map(x => `<option value="${x.id}"${p.mgr === x.id ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select></td>
     <td>${p.sample ? chip('Sample') : p.account ? `<button class="btn quiet sm" data-act="mklink" data-id="${p.id}" title="${ST.mail?.configured ? 'Email them a password reset link' : 'Make a password reset link'}">Reset link</button>` : `<button class="btn ghost sm" data-act="mklink" data-id="${p.id}" title="${ST.mail?.configured ? 'Email them an invite' : 'Make an invite link'}"${p.email ? '' : ' disabled'}>${ST.mail?.configured ? 'Send invite' : 'Invite'}</button>`}</td>
     <td><div class="row"><button class="btn sm" data-act="saveperson" data-id="${p.id}">Save</button>${p.id === ST.realId ? '' : confirmDel === p.id ? `<button class="btn bad sm" data-act="delperson" data-id="${p.id}">Confirm</button><button class="btn quiet sm" data-act="cancel">Cancel</button>` : `<button class="btn quiet sm" data-act="askdel" data-id="${p.id}">Remove</button>`}</div></td></tr>`
-    : `<tr><td><div class="person-h">${avatar(p.name, true)}<div><b>${dosLink(e, p)}</b>${p.title ? `<div class="sub">${esc(p.title)}</div>` : ''}</div></div></td><td>${esc(p.email || '—')}</td><td>${p.sub ? chip(p.sub, SUB_TONE[p.sub] || '') : chip('Group-level')}</td><td>${chip(ROLES[p.role] || p.role, ROLE_TONE[p.role])}</td><td>${esc(p.team || '—')}</td><td>${esc(mgrOf(p)?.name || '—')}</td><td>${p.account ? chip('Active', 'good') : chip('Not yet')}</td><td></td></tr>`).join('')
+    : `<tr><td><div class="person-h">${avatar(p.name, true)}<div><b>${dosLink(e, p)}</b>${p.title ? `<div class="sub">${esc(p.title)}</div>` : ''}</div></div></td><td>${esc(p.email || '—')}</td><td>${p.sub ? chip(p.sub, subTone(p.sub)) : chip('Group-level')}</td><td>${chip(ROLES[p.role] || p.role, ROLE_TONE[p.role])}</td><td>${esc(p.team || '—')}</td><td>${esc(mgrOf(p)?.name || '—')}</td><td>${p.account ? chip('Active', 'good') : chip('Not yet')}</td><td></td></tr>`).join('')
     : `<tr><td colspan="8" class="empty">${filtered ? 'No one matches these filters.' : 'No people yet.'}</td></tr>`}</tbody></table></div></div>`;
 }
 
@@ -1367,6 +1372,7 @@ root.addEventListener('click', ev => {
   render();
 });
 root.addEventListener('change', ev => {
+  if (ev.target.dataset.chg === 'subtone') { readCfg(); draftMoved = true; return render(); }
   if (ev.target.id === 'csv-in') { const f = ev.target.files && ev.target.files[0]; if (!f) return;
     if (f.size > 500 * 1024) return toast('That file is too large. Keep it under 500 KB.');
     const r = new FileReader(); r.onload = () => act('people.import', {text: String(r.result)}).then(out => { if (out) { imp = out; render(); } }); r.onerror = () => toast('Could not read that file.'); r.readAsText(f); return; }

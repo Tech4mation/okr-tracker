@@ -3,7 +3,7 @@
 // which organization a request is for; nothing in here can reach another organization's data.
 import fs from 'node:fs';
 import path from 'node:path';
-import {createModel, EMAIL_RE, uuid, today} from '../public/model.js';
+import {createModel, EMAIL_RE, uuid, today, LEGACY_SUB_TONE, freeTone} from '../public/model.js';
 import * as A from './auth.js';
 import {createStore} from './store.js';
 import {createActions, Refusal, ELSEWHERE} from './actions.js';
@@ -92,6 +92,11 @@ export function createOrg({id, name = '', db, filesDir = '', transport = null, b
     // A subsidiary that people, goals, roles or checklists use always stays in the list. Organizations from before
     // TPD-1890 could rely on the old built-in list of three, which new organizations no longer get.
     [...S.people, ...S.okrs, ...S.roles, ...S.tmpl, ...S.onb].forEach(x => { if (x.sub && !S.cfg.subs.includes(x.sub)) S.cfg.subs.push(x.sub); });
+    // TPD-1891: every subsidiary has a colour; our first three keep the ones they always had.
+    const tone = S.cfg.subTone = {...(S.cfg.subTone || {})};
+    Object.keys(tone).forEach(n => { if (!S.cfg.subs.includes(n)) delete tone[n]; });
+    S.cfg.subs.forEach(n => { if (!tone[n] && LEGACY_SUB_TONE[n]) tone[n] = LEGACY_SUB_TONE[n]; });
+    S.cfg.subs.forEach(n => { if (!tone[n]) tone[n] = freeTone(Object.values(tone)); });
   });
   let company = S.cfg.company;
   // Every address this organization holds, for the platform's email -> organization list.

@@ -183,6 +183,7 @@ nav.tabs button:hover{color:var(--fg)}
 .chip.vio{background:var(--vio-s);color:var(--vio)}.chip.tea{background:var(--tea-s);color:var(--tea)}
 .chip.amb{background:var(--amb-s);color:var(--amb)}.chip.sky{background:var(--sky-s);color:var(--sky)}
 .chip.acc{background:var(--ind-s);color:var(--ind)}
+.chip.ros{background:var(--ros-s);color:var(--ros)}
 .avatar.av0{background:var(--ind-s);color:var(--ind)}.avatar.av1{background:var(--tea-s);color:var(--tea)}
 .avatar.av2{background:var(--amb-s);color:var(--amb)}.avatar.av3{background:var(--ros-s);color:var(--ros)}
 .avatar.av4{background:var(--vio-s);color:var(--vio)}.avatar.av5{background:var(--sky-s);color:var(--sky)}

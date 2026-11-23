@@ -15,7 +15,8 @@ export function createMailer({db, M, baseUrl, transport, log = console}) {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
   function queue(kind, name, subject, text, key) {
-    const p = M.person(name); if (!p) return;
+    // Sample people (TPD-1890) are made up: nothing is ever sent to them, or logged as undeliverable.
+    const p = M.person(name); if (!p || p.sample) return;
     const em = (p.email || '').trim();
     // NT-2: someone with no valid address is reported to HR rather than failing silently.
     const status = !EMAIL_RE.test(em) ? 'no-address' : transport ? 'queued' : 'not-set-up';
@@ -84,7 +85,7 @@ export function createMailer({db, M, baseUrl, transport, log = console}) {
     const count = s => db.prepare('SELECT COUNT(*) AS n FROM outbox WHERE status = ?').get(s).n;
     return {configured: !!transport, server: transport ? transport.describe : '', from: transport ? transport.from : '',
       counts: {sent: count('sent'), queued: count('queued'), failed: count('failed'), noAddress: count('no-address'), notSetUp: count('not-set-up')},
-      noEmail: S.people.filter(p => !EMAIL_RE.test(p.email || '')).map(p => p.name), rows};
+      noEmail: S.people.filter(p => !p.sample && !EMAIL_RE.test(p.email || '')).map(p => p.name), rows};
   }
   // What HR's dashboard needs to know: emails that could not be delivered.
   const problems = () => ({failed: db.prepare("SELECT COUNT(*) AS n FROM outbox WHERE status IN ('failed', 'no-address') AND created_at > ?").get(Date.now() - 14 * 864e5).n, configured: !!transport});
