@@ -316,6 +316,10 @@ details.evid .actlog{background:var(--bg)}
 .auth form{display:flex;flex-direction:column;gap:12px}
 .auth .err{color:var(--bad);font-size:13px;margin:0}
 .auth .f input{width:100%}
+.pw{display:flex;gap:6px;align-items:center}
+.pw input{flex:1;min-width:0}
+.pwbtn{flex:none;background:var(--surface);border:1px solid var(--line);border-radius:8px;color:var(--muted);font:600 12px var(--sans);padding:7px 10px;cursor:pointer}
+.pwbtn:hover{color:var(--fg)}
 .linkbox{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .linkbox input{flex:1 1 260px;min-width:0;font-family:var(--mono);font-size:12px}
 .mailtbl td,.mailtbl th{font-size:13px}

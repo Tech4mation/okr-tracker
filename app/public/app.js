@@ -1166,7 +1166,18 @@ function authCard(title, body) {
   return `<div class="authwrap"><div class="card auth"><div class="brandrow"><span class="logo" aria-hidden="true"></span><h1>Team OKR Tracker</h1></div>
     ${title ? `<h2 style="font-size:17px">${esc(title)}</h2>` : ''}${body}</div></div>`;
 }
-const field = (id, label, type, extra = '') => `<label class="f">${label}<input type="${type}" id="${id}" ${extra}></label>`;
+// A password field gets a Show/Hide button, so people can check what they typed.
+const field = (id, label, type, extra = '') => type === 'password'
+  ? `<label class="f">${label}<span class="pw"><input type="password" id="${id}" ${extra}><button type="button" class="pwbtn" data-act="pwshow" aria-pressed="false" aria-label="Show password">Show</button></span></label>`
+  : `<label class="f">${label}<input type="${type}" id="${id}" ${extra}></label>`;
+// Shows or hides the password next to the button, without redrawing the page (which would clear what was typed).
+function togglePw(b) {
+  const input = b.parentElement.querySelector('input'), show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  b.textContent = show ? 'Hide' : 'Show';
+  b.setAttribute('aria-pressed', String(show)); b.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+  input.focus();
+}
 function authView() {
   const err = authMsg ? `<p class="err" role="alert">${esc(authMsg)}</p>` : '';
   if (phase === 'login') return authCard('Sign in', `<form data-submit="login">${field('li-email', 'Work email', 'email', 'autocomplete="username" required')}${field('li-pass', 'Password', 'password', 'autocomplete="current-password" required')}
@@ -1252,6 +1263,7 @@ const root = $('#root');
 root.addEventListener('click', ev => {
   const b = ev.target.closest('[data-act]'); if (!b) return;
   const a = b.dataset.act, id = b.dataset.id, e = eff(), i = +b.dataset.i;
+  if (a === 'pwshow') return void togglePw(b);
   if (a === 'reload') return void refresh();
   if (a === 'signout') { api('/api/logout', {method: 'POST', json: {}}).catch(() => {}).finally(() => { if (es) { es.close(); es = null; } ST = null; viewAs = null; subFilter = ''; phase = 'login'; authMsg = ''; history.replaceState(null, '', '/'); render(); }); return; }
   if (!e) return;

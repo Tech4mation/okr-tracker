@@ -45,7 +45,18 @@ function ago(ms) {
 }
 
 // ---------- screens ----------
-const field = (id, label, type, extra = '') => `<label class="f">${label}<input type="${type}" id="${id}" ${extra}></label>`;
+// A password field gets a Show/Hide button, so people can check what they typed.
+const field = (id, label, type, extra = '') => type === 'password'
+  ? `<label class="f">${label}<span class="pw"><input type="password" id="${id}" ${extra}><button type="button" class="pwbtn" data-act="pwshow" aria-pressed="false" aria-label="Show password">Show</button></span></label>`
+  : `<label class="f">${label}<input type="${type}" id="${id}" ${extra}></label>`;
+// Shows or hides the password next to the button, without redrawing the page (which would clear what was typed).
+function togglePw(b) {
+  const input = b.parentElement.querySelector('input'), show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  b.textContent = show ? 'Hide' : 'Show';
+  b.setAttribute('aria-pressed', String(show)); b.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+  input.focus();
+}
 function authCard(title, body) {
   return `<div class="authwrap"><div class="card auth"><div class="brandrow"><span class="logo" aria-hidden="true"></span><h1>Team OKR Tracker</h1></div>
     <h2 style="font-size:17px">${esc(title)}</h2>${body}</div></div>`;
@@ -104,6 +115,7 @@ const root = $('#root');
 root.addEventListener('click', async ev => {
   const b = ev.target.closest('[data-act]'); if (!b) return;
   const a = b.dataset.act, id = b.dataset.id, o = orgs.find(x => x.id === id);
+  if (a === 'pwshow') return togglePw(b);
   if (a === 'copylink') {
     const el = $('#link-url'); if (!el) return;
     el.select();
