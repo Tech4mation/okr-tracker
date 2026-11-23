@@ -564,3 +564,68 @@ test('the single-company data folder from before becomes the first organization,
   s3.okr.close();
   fs.rmSync(dir, {recursive: true, force: true});
 });
+
+// ---------- the platform owners' page (TPD-1889) ----------
+const owner = client(), dee = client();
+let D, deeReset;
+const mailBody = m => Buffer.from(m.split('\r\n\r\n')[1] || '', 'base64').toString();
+
+test('platform owners have their own accounts, apart from every organization\'s', async () => {
+  const {token} = server.okr.platform.owners.link('pat@platform.co', 'Pat Owner');
+  await no(owner.get('/api/platform/orgs'), 401);
+  await no(ceo.get('/api/platform/orgs'), 401);                                   // an organization's CEO can't reach it
+  assert.equal((await ok(client().post('/api/platform/link', {token}))).email, 'pat@platform.co');
+  await no(client().post('/api/platform/password', {token, password: 'short-pw'}));
+  await ok(owner.post('/api/platform/password', {token, password: 'owner-password-1'}));
+  await no(client().post('/api/platform/password', {token, password: 'owner-password-2'}));   // used up
+  await no(owner.get('/api/state'), 401);                                         // and an owner can't reach an organization
+  await no(client().post('/api/platform/login', {email: 'pat@platform.co', password: 'not-the-password'}), 401);
+  await no(client().post('/api/platform/login', {email: 'cleo@x.co', password: 'password1'}), 401);   // organization accounts don't work here
+  await ok(client().post('/api/platform/login', {email: 'PAT@platform.co', password: 'owner-password-1'}));
+  const list = (await ok(owner.get('/api/platform/orgs'))).orgs;
+  assert.deepEqual(list.map(r => r.name), ['Acme', 'Beta Ltd', 'Gamma']);
+  const acme = list.find(r => r.name === 'Acme');
+  assert.equal(acme.ceo.name, 'Cleo Obi'); assert.equal(acme.ceo.ready, true); assert.equal(acme.status, 'active');
+  assert.equal(acme.people, S.people.length); assert.ok(acme.lastAt > 0 && acme.createdAt > 0);
+  assert.equal(list.find(r => r.name === 'Gamma').ceo, null);
+});
+
+test('an owner can send a locked-out CEO a password reset link, and can\'t create companies', async () => {
+  D = server.okr.addOrg('Delta Co');
+  await ok(dee.post('/api/setup', {token: tok(D.setupLink(base)), name: 'Dee Dapo', email: 'dee@delta.co', password: 'password1'}));
+  await no(ceo.post(`/api/platform/orgs/${D.id}/link`), 401);
+  inbox.length = 0;
+  const r = await ok(owner.post(`/api/platform/orgs/${D.id}/link`));
+  assert.equal(r.kind, 'reset'); assert.equal(r.emailed, true);
+  deeReset = tok(r.url);
+  await D.mailer.flush();
+  const mail = inbox.find(m => m.includes('To: <dee@delta.co>'));
+  assert.ok(mail && mailBody(mail).includes(`/reset?token=${D.id}.`));
+  assert.equal((await ok(client().post('/api/link', {kind: 'reset', token: deeReset}))).email, 'dee@delta.co');
+  const row = (await ok(owner.get('/api/platform/orgs'))).orgs.find(x => x.id === D.id);
+  assert.deepEqual([row.name, row.people, row.ceo.name, row.ceo.ready], ['Delta Co', 1, 'Dee Dapo', true]);
+  // Companies sign up themselves; this page can't create one.
+  await no(owner.post('/api/platform/orgs', {name: 'X Ltd', ceoName: 'Yan Zee', ceoEmail: 'yan@x.co'}), 404);
+});
+
+test('a paused organization keeps everything, and nobody in it can sign in', async () => {
+  await ok(owner.post(`/api/platform/orgs/${D.id}/suspend`));
+  await no(owner.post(`/api/platform/orgs/${D.id}/suspend`), 409);
+  await no(dee.get('/api/state'), 401);
+  await no(act(dee, 'stand.add', {text: 'While paused'}), 401);
+  assert.match((await no(client().post('/api/login', {email: 'dee@delta.co', password: 'password1'}), 403)).error, /paused/);
+  await no(client().post('/api/login', {email: 'dee@delta.co', password: 'wrong-pass'}), 401);   // no hint without the right password
+  await no(client().post('/api/link', {kind: 'reset', token: deeReset}), 403);
+  await no(owner.post(`/api/platform/orgs/${D.id}/link`), 409);
+  assert.equal((await ok(owner.get('/api/platform/orgs'))).orgs.find(x => x.id === D.id).status, 'suspended');
+  await ok(ana.get('/api/state'));                                                // everyone else carries on
+  await ok(owner.post(`/api/platform/orgs/${D.id}/resume`));
+  assert.deepEqual((await state(dee)).people.map(p => p.name), ['Dee Dapo']);
+  await ok(owner.post('/api/platform/logout'));
+  await no(owner.get('/api/platform/orgs'), 401);
+});
+
+test('the platform page and its script are served', async () => {
+  for (const p of ['/platform', '/platform/setup', '/platform.js']) assert.equal((await fetch(base + p)).status, 200, p);
+  assert.match(await (await fetch(base + '/platform')).text(), /platform\.js/);
+});

@@ -12,6 +12,7 @@
     "org-create": "node --disable-warning=ExperimentalWarning server.js org-create",
     "setup-link": "node --disable-warning=ExperimentalWarning server.js setup-link",
     "reset-link": "node --disable-warning=ExperimentalWarning server.js reset-link",
+    "platform-owner": "node --disable-warning=ExperimentalWarning server.js platform-owner",
     "backup": "node --disable-warning=ExperimentalWarning server.js backup",
     "test": "node --disable-warning=ExperimentalWarning --test"
   }

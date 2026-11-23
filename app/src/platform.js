@@ -10,13 +10,25 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {openDb, tx} from './db.js';
+import {newToken, sha} from './auth.js';
 
 const MIGRATIONS = [`
   CREATE TABLE orgs (id TEXT PRIMARY KEY, name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', created_at INTEGER NOT NULL);
   CREATE TABLE emails (email TEXT PRIMARY KEY COLLATE NOCASE, org_id TEXT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE);
   CREATE INDEX emails_org ON emails(org_id);
   CREATE TABLE meta (k TEXT PRIMARY KEY, v TEXT NOT NULL);
+`,
+// Version 2 (TPD-1889): the platform's own owners, who set up organizations. Their accounts, sessions and links
+// live here, apart from every organization's. An empty pass_hash means the owner has not chosen a password yet.
+`
+  CREATE TABLE owners (id INTEGER PRIMARY KEY, email TEXT NOT NULL UNIQUE COLLATE NOCASE, name TEXT NOT NULL DEFAULT '',
+    pass_hash TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL);
+  CREATE TABLE owner_sessions (token_hash TEXT PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES owners(id) ON DELETE CASCADE, expires_at INTEGER NOT NULL);
+  CREATE TABLE owner_links (token_hash TEXT PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES owners(id) ON DELETE CASCADE, expires_at INTEGER NOT NULL);
+  ALTER TABLE orgs ADD COLUMN last_at INTEGER;
 `];
+const HOUR = 3600e3;
+export const OWNER_SESSION_HOURS = 12;
 
 const ORG_ID = /^[a-z0-9]{4,32}$/;
 export const isOrgId = v => typeof v === 'string' && ORG_ID.test(v);
@@ -72,6 +84,48 @@ export function openPlatform(dataDir) {
         for (const e of want) if (!have.has(e) && !ins.run(e, orgId).changes) clash.push(e);
       });
       return clash;
+    },
+
+    setStatus: (id, status) => db.prepare('UPDATE orgs SET status = ? WHERE id = ?').run(status, id),
+    // When someone in the organization last used it.
+    touch: (id, at = Date.now()) => db.prepare('UPDATE orgs SET last_at = ? WHERE id = ?').run(at, id),
+
+    // ---------- the platform's owners: separate accounts, sessions and links ----------
+    owners: {
+      // A one-time link to choose a password, valid 24 hours. Makes the owner if they don't exist yet.
+      link(email, name = '') {
+        email = String(email || '').trim().toLowerCase();
+        let o = db.prepare('SELECT * FROM owners WHERE email = ?').get(email);
+        if (!o) { db.prepare('INSERT INTO owners (email, name, created_at) VALUES (?, ?, ?)').run(email, String(name || '').trim().slice(0, 80), Date.now()); o = db.prepare('SELECT * FROM owners WHERE email = ?').get(email); }
+        else if (name) db.prepare('UPDATE owners SET name = ? WHERE id = ?').run(String(name).trim().slice(0, 80), o.id);
+        db.prepare('DELETE FROM owner_links WHERE owner_id = ?').run(o.id);
+        const token = newToken();
+        db.prepare('INSERT INTO owner_links (token_hash, owner_id, expires_at) VALUES (?, ?, ?)').run(sha(token), o.id, Date.now() + 24 * HOUR);
+        return {token, existed: !!o.pass_hash};
+      },
+      byLink: token => token ? db.prepare('SELECT o.* FROM owner_links l JOIN owners o ON o.id = l.owner_id WHERE l.token_hash = ? AND l.expires_at >= ?').get(sha(token), Date.now()) || null : null,
+      // Sets the password, uses up the link and signs out every other session of that owner.
+      setPassword(token, hash) {
+        const o = P.owners.byLink(token);
+        if (!o) return null;
+        tx(db, () => {
+          db.prepare('UPDATE owners SET pass_hash = ? WHERE id = ?').run(hash, o.id);
+          db.prepare('DELETE FROM owner_links WHERE owner_id = ?').run(o.id);
+          db.prepare('DELETE FROM owner_sessions WHERE owner_id = ?').run(o.id);
+        });
+        return o;
+      },
+      byEmail: email => db.prepare("SELECT * FROM owners WHERE email = ? AND pass_hash <> ''").get(String(email || '').trim().toLowerCase()) || null,
+      // Sessions last 12 hours from sign-in and are not extended.
+      startSession(ownerId) {
+        const token = newToken();
+        db.prepare('INSERT INTO owner_sessions (token_hash, owner_id, expires_at) VALUES (?, ?, ?)').run(sha(token), ownerId, Date.now() + OWNER_SESSION_HOURS * HOUR);
+        return token;
+      },
+      bySession: token => token ? db.prepare('SELECT o.id, o.email, o.name FROM owner_sessions s JOIN owners o ON o.id = s.owner_id WHERE s.token_hash = ? AND s.expires_at >= ?').get(sha(token), Date.now()) || null : null,
+      endSession: token => token && db.prepare('DELETE FROM owner_sessions WHERE token_hash = ?').run(sha(token)),
+      prune() { const now = Date.now(); db.prepare('DELETE FROM owner_sessions WHERE expires_at < ?').run(now); db.prepare('DELETE FROM owner_links WHERE expires_at < ?').run(now); },
+      list: () => db.prepare("SELECT email, name, pass_hash <> '' AS ready FROM owners ORDER BY created_at").all(),
     },
 
     // A consistent copy of this file, safe while the app runs.

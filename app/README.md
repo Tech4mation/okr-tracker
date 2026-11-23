@@ -60,7 +60,14 @@ Then set up nginx from `deploy/nginx.conf`. The live-updates stream (`/api/event
 
 ## Organizations
 
-Run these on the server, from the `app` folder (Docker: `docker compose exec okr-tracker node server.js <command>`):
+**The platform page** at `https://okr.yourcompany.com/platform` is for whoever runs the platform, not for the companies on it. Companies sign up themselves; nobody here creates or approves them. From it you:
+- see every organization: its CEO, number of people, when it was created and when someone last used it;
+- send a locked-out CEO a password reset link (or a fresh invite, if they never chose a password);
+- pause an organization for spam or abuse (nobody in it can sign in, its email stops, nothing is deleted) and bring it back.
+
+Platform accounts are separate from every organization's accounts, with their own sign-in, and nobody signed in to an organization can use the page. Make one with `npm run platform-owner -- you@yourcompany.com "Your Name"`, which prints a link to choose a password (valid 24 hours; running it again for the same email gives a reset link). Platform passwords need at least 10 characters, and a platform sign-in lasts 12 hours.
+
+The same jobs can be done on the server, from the `app` folder (Docker: `docker compose exec okr-tracker node server.js <command>`):
 
 | Command | What it does |
 |---|---|
@@ -68,6 +75,7 @@ Run these on the server, from the `app` folder (Docker: `docker compose exec okr
 | `npm run org-create -- "Acme Ltd"` | Adds an empty organization and prints a setup link for its CEO, valid 7 days. Send it to them; whoever uses it becomes that organization's CEO. |
 | `npm run setup-link -- <org-id>` | A new setup link for an organization that has no CEO yet. The id can be left out while there is only one organization. |
 | `npm run reset-link -- <email>` | A password reset link for that account, in whichever organization it belongs to. |
+| `npm run platform-owner -- <email> [name]` | A link for one of us to choose a password for the platform page. |
 
 Adding an email address that another organization already uses is refused, whether it is typed in, imported or used to set up a CEO. The address frees up when its person is removed.
 
@@ -140,7 +148,8 @@ npm test        # API tests against the PRD rules
 
 | Path | What it is |
 |---|---|
-| `server.js` | Entry point, and the orgs, org-create, setup-link, reset-link and backup commands |
+| `server.js` | Entry point, and the orgs, org-create, setup-link, reset-link, platform-owner and backup commands |
+| `src/admin.js` | The platform page's API: owner sign-in, new organizations, CEO links, pausing |
 | `src/platform.js` | The organizations, which one each email belongs to, and the upgrade from the single-company layout |
 | `src/org.js` | One organization: its records, actions, accounts, links, files, email and live updates |
 | `public/model.js` | The rules: who sees whom, progress and status, approvals, reviews, leave, hiring, onboarding. Shared by the server and the page |
@@ -153,3 +162,4 @@ npm test        # API tests against the PRD rules
 | `src/db.js` | SQLite schema and upgrades |
 | `src/auth.js` | Passwords, sessions, one-time links, rate limiting |
 | `public/app.js`, `app.css`, `index.html` | The page (the v1.1 prototype's screens) |
+| `public/platform.html`, `platform.js` | The platform page |

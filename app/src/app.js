@@ -12,12 +12,16 @@ import * as A from './auth.js';
 import {openDb} from './db.js';
 import {openPlatform, adoptLegacy, splitToken} from './platform.js';
 import {createOrg} from './org.js';
+import {createAdmin} from './admin.js';
 import {Refusal} from './actions.js';
 import {HttpError, fail, HANDLED, SECURITY, MAX_JSON, MAX_FILE, send, readRaw, parseJson} from './http.js';
 
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
-const STATIC = {'/app.js': 'text/javascript', '/app.css': 'text/css', '/model.js': 'text/javascript', '/favicon.svg': 'image/svg+xml'};
+const STATIC = {'/app.js': 'text/javascript', '/app.css': 'text/css', '/model.js': 'text/javascript', '/favicon.svg': 'image/svg+xml', '/platform.js': 'text/javascript'};
 const PAGE_PATHS = new Set(['/', '/index.html', '/setup', '/reset', '/invite']);
+// The platform owners' page (admin.js). Opening it does nothing without an owner's own sign-in.
+const PLATFORM_PAGES = new Set(['/platform', '/platform/setup']);
+const PAUSED = 'Team OKR Tracker is paused for your organization. Nothing in it has been deleted. Ask your CEO to get in touch with us.';
 // Routes whose organization comes from the link token in the body, with what to say when the link is no good.
 const LINKS = {
   '/api/setup': () => 'This setup link has expired or was already used. Ask whoever set up your organization for a new one.',
@@ -43,6 +47,7 @@ export function createApp({dataDir, publicUrl = '', cookieSecure = false, trustP
   const orgs = new Map();
   // True until some organization has its CEO: the page then explains how to get a setup link.
   const needsSetup = () => ![...orgs.values()].some(o => o.hasCeo());
+  const lastTouch = new Map();
   function load(row) {
     const id = row.id;
     const org = createOrg({
@@ -50,29 +55,35 @@ export function createApp({dataDir, publicUrl = '', cookieSecure = false, trustP
       registry: {
         elsewhere: em => { const o = platform.orgOfEmail(em); return !!o && o !== id; },
         sync: list => { const clash = platform.syncEmails(id, list); if (clash.length) log.error(`Organization ${id} holds addresses another organization already has: ${clash.join(', ')}`); },
+        // Last activity, for the platform page: written at most once a minute.
+        active: () => { const t = Date.now(); if (t - (lastTouch.get(id) || 0) > 60e3) { lastTouch.set(id, t); platform.touch(id, t); } },
       },
     });
     org.name = row.name;
+    org.status = row.status;
     orgs.set(id, org);
     return org;
   }
-  // An organization made since start-up (for example from the command line) loads on first use. Only active
-  // organizations are served.
+  // An organization made since start-up (for example from the command line) loads on first use.
   function org(id) {
     if (!id) return null;
     const have = orgs.get(id);
     if (have) return have;
     const row = platform.get(id);
-    return row && row.status === 'active' ? load(row) : null;
+    return row ? load(row) : null;
   }
+  // Only a running organization is served; a paused one is kept but nobody can use it.
+  const open = o => !!o && o.status === 'active';
   // Every organization is loaded at start, so each one's daily email goes out even if nobody has signed in yet.
-  platform.list().filter(r => r.status === 'active').forEach(load);
+  platform.list().forEach(load);
+  const admin = createAdmin({platform, org, addOrg: name => load(platform.create(name)), transport, cookieSecure, loginLimit, linkLimit, ip});
   const fromCookie = req => { const {org: id, token} = splitToken(A.readCookie(req), platform.legacyOrg()); return {o: org(id), token}; };
 
   const timers = [
-    setInterval(() => orgs.forEach(o => o.prune()), 6 * 3600e3),
-    setInterval(() => orgs.forEach(o => o.ping()), 25e3),
-    setInterval(() => orgs.forEach(o => o.tick()), 60e3),
+    setInterval(() => { orgs.forEach(o => o.prune()); platform.owners.prune(); }, 6 * 3600e3),
+    setInterval(() => orgs.forEach(o => open(o) && o.ping()), 25e3),
+    // A paused organization sends no email.
+    setInterval(() => orgs.forEach(o => open(o) && o.tick()), 60e3),
   ];
   timers.forEach(t => t.unref());
 
@@ -83,11 +94,12 @@ export function createApp({dataDir, publicUrl = '', cookieSecure = false, trustP
     const o = org(platform.orgOfEmail(email)), u = o ? o.login(email) : null;
     const ok = await A.checkPassword(pw, u ? u.pass_hash : A.DUMMY_HASH);
     if (!u || !ok) fail(401, 'That email and password don\'t match.');
+    if (!open(o)) fail(403, PAUSED);
     o.startSession(res, u.id);
   }
 
   function serveStatic(req, res, pathname) {
-    const file = PAGE_PATHS.has(pathname) ? 'index.html' : STATIC[pathname] ? pathname.slice(1) : null;
+    const file = PAGE_PATHS.has(pathname) ? 'index.html' : PLATFORM_PAGES.has(pathname) ? 'platform.html' : STATIC[pathname] ? pathname.slice(1) : null;
     if (!file) return send(req, res, 404, 'Not found', {'Content-Type': 'text/plain; charset=utf-8', ...SECURITY});
     fs.readFile(path.join(PUBLIC, file), (err, data) => {
       if (err) return send(req, res, 500, 'Could not read the page.', {'Content-Type': 'text/plain; charset=utf-8'});
@@ -106,7 +118,7 @@ export function createApp({dataDir, publicUrl = '', cookieSecure = false, trustP
       if (pathname === '/api/health' && req.method === 'GET') return send(req, res, 200, {ok: true});
       if (pathname === '/api/events' && req.method === 'GET') {
         const {o, token} = fromCookie(req);
-        if (!o) fail(401, 'Sign in to continue.');
+        if (!open(o)) fail(401, o ? PAUSED : 'Sign in to continue.');
         return o.events(req, res, token);
       }
       // Writes must carry this header. Browsers can't add it to a cross-site request without CORS, which the app never allows.
@@ -115,6 +127,7 @@ export function createApp({dataDir, publicUrl = '', cookieSecure = false, trustP
       const raw = req.method === 'GET' ? Buffer.alloc(0) : await readRaw(req, isFile ? MAX_FILE : MAX_JSON);
       const body = isFile ? {} : parseJson(raw);
 
+      if (pathname.startsWith('/api/platform/')) return send(req, res, 200, await admin.handle(req, res, {pathname, body, base: baseUrl(req)}));
       if (req.method === 'POST' && pathname === '/api/login') { await login(req, res, body); return send(req, res, 200, {ok: true}); }
       if (req.method === 'POST' && pathname === '/api/logout') {
         const {o, token} = fromCookie(req);
@@ -128,10 +141,12 @@ export function createApp({dataDir, publicUrl = '', cookieSecure = false, trustP
         const t = splitToken(body.token, platform.legacyOrg());
         o = org(t.org);
         if (!o || !t.token) fail(400, LINKS[pathname](body));
+        if (!open(o)) fail(403, PAUSED);
         body.token = t.token;
       } else {
         ({o, token} = fromCookie(req));
         if (!o) fail(401, 'Sign in to continue.', pathname === '/api/state' ? {needsSetup: needsSetup()} : undefined);
+        if (!open(o)) fail(401, PAUSED, pathname === '/api/state' ? {needsSetup: false} : undefined);
       }
       const out = await o.handle(req, res, {pathname, body, raw, token, base: baseUrl(req)});
       if (out !== HANDLED) send(req, res, 200, out);
@@ -150,6 +165,7 @@ export function createApp({dataDir, publicUrl = '', cookieSecure = false, trustP
     org,
     // A new, empty organization, ready for its CEO's setup link.
     addOrg: name => load(platform.create(name)),
+    open,
     close() { stopTimers(); orgs.forEach(o => o.close()); orgs.clear(); platform.close(); },
   };
   return server;
