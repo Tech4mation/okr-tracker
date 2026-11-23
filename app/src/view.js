@@ -17,6 +17,7 @@ export function viewFor(M, e) {
     if (M.canSeePay(e, p)) out.salary = p.salary || 0;
     if (group) out.account = !!p.uid;
     if (p.sample) out.sample = true;
+    if (p.left) out.left = p.left;
     return out;
   });
   const okrs = S.okrs.filter(o => o.owner === 'Company' ? (group || !o.sub || o.sub === e.sub) : scope.has(o.owner));
@@ -41,7 +42,7 @@ export function viewFor(M, e) {
     onb: S.onb.filter(x => group || (mgr && team.has(x.owner) && x.owner !== e.name)),
     tmpl: group ? S.tmpl : [],
     // The leaderboard needs teammates' standing, not their goals: send the figure, not the records.
-    board: Object.fromEntries([...board].map(n => [n, {pct: M.personPct(n)}])),
+    board: Object.fromEntries([...board].filter(n => M.isActive(M.person(n))).map(n => [n, {pct: M.personPct(n)}])),
     meta: {standWeeks: [...new Set(S.stand.filter(recent).map(x => x.week))]},
   };
   return out;

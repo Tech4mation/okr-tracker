@@ -99,6 +99,7 @@ export function createApp({dataDir, publicUrl = '', cookieSecure = false, trustP
     const ok = await A.checkPassword(pw, u ? u.pass_hash : A.DUMMY_HASH);
     if (!u || !ok) fail(401, 'That email and password don\'t match.');
     if (!open(o)) fail(403, PAUSED);
+    if (u.left) fail(403, `Your account at ${o.S.cfg.company || 'your company'} is switched off because you are marked as having left. If that's a mistake, ask your HR team.`);
     o.startSession(res, u.id);
   }
 

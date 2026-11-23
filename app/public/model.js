@@ -133,9 +133,12 @@ export function createModel({getSub = () => ''} = {}) {
   const ownerLabel = o => o.owner === 'Company' ? (o.sub ? o.sub : 'Whole company') : o.owner;
   const cv = (o, e) => o.owner !== 'Company' || (isGroup(e) ? (!subFilter() || !o.sub || o.sub === subFilter()) : (!o.sub || o.sub === e.sub));
   const person = n => S.people.find(x => x.name === n);
+  // TPD-1893: someone marked as left keeps every record, still visible to whoever could see it, but takes no part in
+  // anything current: no reports, goals to set, surveys, leaderboards, headcount, approvals or email.
+  const isActive = p => !!p && !p.left;
   const mgrOf = p => p && p.mgr ? S.people.find(x => x.id === p.mgr) : null;
   const reportsTo = (p, m) => { let c = p, n = 0; while (c && m && n++ < 50) { if (c.mgr === m.id) return true; c = mgrOf(c); } return false; };
-  const directs = p => S.people.filter(x => x.mgr === p.id).sort((a, b) => a.name.localeCompare(b.name));
+  const directs = p => S.people.filter(x => x.mgr === p.id && !x.left).sort((a, b) => a.name.localeCompare(b.name));
   // A team is the unit around someone: a manager's own subtree, or for everyone
   // else the subtree of whoever they report to, so peers still see each other.
   const unitRoot = p => directs(p).length ? p : (mgrOf(p) || p);
@@ -340,8 +343,8 @@ export function createModel({getSub = () => ''} = {}) {
   };
   // Whose a task is, by name: used for the dashboard and the daily email.
   const onbOwners = (o, t) => { const p = person(o.owner);
-    if (mgrTask(t)) { const m = p && mgrOf(p); return m ? [m.name] : S.people.filter(x => x.role === 'ceo').map(x => x.name); }
-    return S.people.filter(x => x.role === 'hr').map(x => x.name);
+    if (mgrTask(t)) { const m = p && mgrOf(p); return isActive(m) ? [m.name] : S.people.filter(x => x.role === 'ceo' && !x.left).map(x => x.name); }
+    return S.people.filter(x => x.role === 'hr' && !x.left).map(x => x.name);
   };
 
   // ---------- hiring ----------
@@ -361,7 +364,7 @@ export function createModel({getSub = () => ''} = {}) {
   // A reference anyone can quote in a conversation, a contract or an invoice.
   const reqRef = () => { const y = curY(), used = new Set(S.roles.map(r => r.ref)); let n = S.roles.filter(r => (r.ref || '').startsWith('REQ-' + y)).length + 1;
     while (used.has(`REQ-${y}-${String(n).padStart(3, '0')}`)) n++; return `REQ-${y}-${String(n).padStart(3, '0')}`; };
-  const hrAny = () => (S.people.find(p => p.role === 'hr') || {}).name || '';
+  const hrAny = () => (S.people.find(p => p.role === 'hr' && !p.left) || {}).name || '';
   const chainOf = r => r.chain || [];
   const stepNow = r => chainOf(r).find(x => x.state === 'Pending') || null;
   const stepNo = r => chainOf(r).findIndex(x => x.state === 'Pending') + 1;
@@ -373,7 +376,7 @@ export function createModel({getSub = () => ''} = {}) {
     const p = person(name), out = [], m = p && mgrOf(p);
     if (S.cfg.reqMgr && m) out.push({role: 'Line manager', who: m.name});
     out.push({role: 'HR', who: ''});
-    const boss = S.people.find(x => x.role === 'ceo');
+    const boss = S.people.find(x => x.role === 'ceo' && !x.left);
     if (S.cfg.execAll && boss) out.push({role: 'Exec sign-off', who: boss.name});
     const seen = new Set();
     return out.filter(st => { const k = st.role === 'HR' ? 'HR' : st.who; if (seen.has(k)) return false; seen.add(k); return true; })
@@ -409,7 +412,7 @@ export function createModel({getSub = () => ''} = {}) {
 
   // ---------- wellbeing ----------
   const surveyFor = w => S.surveys.find(x => x.week === w) || null;
-  const recipients = () => S.people.slice();
+  const recipients = () => S.people.filter(isActive);
   const welfareOf = (n, w) => S.welfare.find(x => x.owner === n && x.week === w);
   const responded = w => recipients().filter(p => welfareOf(p.name, w));
   const outstanding = w => recipients().filter(p => !welfareOf(p.name, w));
@@ -466,7 +469,7 @@ export function createModel({getSub = () => ''} = {}) {
   const revsFor = e => S.okrs.filter(o => o.rev && canApprove(e, o) && (e.role !== 'ceo' || !subFilter() || person(o.owner)?.sub === subFilter()));
   const approverOf = o => { const m = mgrOf(person(o.owner)); return m ? m.name : 'the CEO'; };
   // Who is asked to approve: the line manager, or every CEO when there is none.
-  const approversFor = name => { const m = mgrOf(person(name)); return m ? [m.name] : S.people.filter(x => x.role === 'ceo' && x.name !== name).map(x => x.name); };
+  const approversFor = name => { const m = mgrOf(person(name)); return isActive(m) ? [m.name] : S.people.filter(x => x.role === 'ceo' && !x.left && x.name !== name).map(x => x.name); };
   const applyRev = (o, r) => { o.krs = r.krs.map(k => k.src != null ? {...o.krs[k.src], moves: moveLog(o.krs[k.src], k.month), title: k.title, month: k.month, type: k.type, target: k.type === 'binary' ? 0 : +k.target, unit: k.unit} : {title: k.title, pct: 0, req: false, reqAt: 0, apBy: '', month: k.month, type: k.type, target: k.type === 'binary' ? 0 : +k.target, unit: k.unit, cur: 0}); o.objective = r.objective; };
   function pendingFor(e) {
     const out = [];
@@ -474,9 +477,10 @@ export function createModel({getSub = () => ''} = {}) {
     return out.sort((a, b) => (a.k.reqAt || 0) - (b.k.reqAt || 0));
   }
   function ownerOptions(e) {
-    if (e.role === 'ceo') return ['Company', ...S.cfg.subs.map(x => 'Company:' + x), ...S.people.map(p => p.name).filter(n => n !== e.name), e.name].filter((v, i, a) => a.indexOf(v) === i);
-    if (e.role === 'manager') return [e.name, ...[...lineNames(e)].filter(n => n !== e.name)];
-    if (e.role === 'hr') return [e.name, ...S.people.map(p => p.name).filter(n => n !== e.name)];
+    const now = S.people.filter(isActive).map(p => p.name);
+    if (e.role === 'ceo') return ['Company', ...S.cfg.subs.map(x => 'Company:' + x), ...now.filter(n => n !== e.name), e.name].filter((v, i, a) => a.indexOf(v) === i);
+    if (e.role === 'manager') return [e.name, ...[...lineNames(e)].filter(n => n !== e.name && now.includes(n))];
+    if (e.role === 'hr') return [e.name, ...now.filter(n => n !== e.name)];
     return [];
   }
   const logGain = (o, delta) => { const n = personOkrs(o.owner).length || 1; S.logs.push({id: uuid(), owner: o.owner, week: curWeek(), delta: delta / o.krs.length / n, okr: o.id, ts: Date.now()}); };
@@ -517,7 +521,7 @@ export function createModel({getSub = () => ''} = {}) {
   }
 
   return {
-    S, isGroup, where, ownerLabel, cv, person, mgrOf, reportsTo, directs, unitRoot, teamNames, lineNames, scope, lbScope, canSeeDossier, canSeePay,
+    S, isGroup, isActive, where, ownerLabel, cv, person, mgrOf, reportsTo, directs, unitRoot, teamNames, lineNames, scope, lbScope, canSeeDossier, canSeePay,
     gain, isMonthly, krMeasured, krFrac, krMeasure, okrPct, personOkrs, personPct, companyPct, isPersonal, overdue, goalMonth, expectedPace,
     okrExpected, personExpected, autoStatus, okrStatus, moveLog, plannedFor, movedOutOf, doneInMonth, monthRows, cyclesIn, appraise,
     okrUpdates, lastUpd, staleDays, isStale, krStale, staleLabel, krRef, krOpts, activityOn, loggedTotal, hasLog, latestLogged, pendingTotal,

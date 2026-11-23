@@ -67,6 +67,11 @@ export function createOrg({id, name = '', db, filesDir = '', transport = null, b
       db.prepare("DELETE FROM tokens WHERE kind = 'invite' AND person_id = ?").run(p.id);
       if (p.uid) db.prepare('DELETE FROM users WHERE id = ?').run(Number(p.uid));
     },
+    // A leaver (TPD-1893): the account is kept for if they come back, but every session and link is ended now.
+    disable(p) {
+      db.prepare("DELETE FROM tokens WHERE kind = 'invite' AND person_id = ?").run(p.id);
+      if (p.uid) { db.prepare('DELETE FROM sessions WHERE user_id = ?').run(Number(p.uid)); db.prepare('DELETE FROM tokens WHERE user_id = ?').run(Number(p.uid)); }
+    },
   };
   const files = {
     path: fid => path.join(filesDir, String(fid).replace(/[^a-zA-Z0-9-]/g, '')),
@@ -122,6 +127,7 @@ export function createOrg({id, name = '', db, filesDir = '', transport = null, b
     if (!account) return {account: null};
     registry.active?.();
     const real = S.people.find(p => p.uid === String(account.id)) || null;
+    if (real?.left) return {account: null};
     let e = real;
     const va = String(req.headers['x-view-as'] || '');
     if (real && real.role === 'ceo' && va && va !== real.id) e = S.people.find(p => p.id === va) || real;
@@ -212,7 +218,7 @@ export function createOrg({id, name = '', db, filesDir = '', transport = null, b
       const e = c.e;
       return {account: {name: c.account.name, email: c.account.email}, realId: c.real.id, effId: e.id, previewing: c.previewing,
         real: {id: c.real.id, name: c.real.name, role: c.real.role, sub: c.real.sub, team: c.real.team},
-        others: c.real.role === 'ceo' ? S.people.filter(p => p.id !== c.real.id).map(p => ({id: p.id, name: p.name})) : [],
+        others: c.real.role === 'ceo' ? S.people.filter(p => p.id !== c.real.id && !p.left).map(p => ({id: p.id, name: p.name})) : [],
         mail: M.isGroup(c.real) && !c.previewing ? mailer.problems() : null,
         S: viewFor(M, e)};
     }],
@@ -227,6 +233,7 @@ export function createOrg({id, name = '', db, filesDir = '', transport = null, b
     ['POST', /^\/api\/people\/([\w-]+)\/link$/, (c, b, req, res, m) => {
       const e = groupOnly(c), p = S.people.find(x => x.id === m[1]) || fail(404, 'That person is no longer in the directory.');
       if (p.role === 'ceo' && e.role !== 'ceo') fail(403, 'Only the CEO can do that for a CEO.');
+      if (p.left) fail(400, `${p.name} has left. Switch them back on in the Directory first.`);
       if (p.sample) fail(400, `${p.name} is sample data and can't sign in. Clear the sample data in Settings when you're ready to add your own people.`);
       const emailable = !!transport && EMAIL_RE.test(p.email || '');
       const sendMail = (kind, subject, text) => { if (emailable) change(() => mailer.notify(kind, [p.name], {subject, text, tab: null, key: `${kind}:${p.id}:${now()}`})); };
@@ -315,7 +322,7 @@ export function createOrg({id, name = '', db, filesDir = '', transport = null, b
     // Closes every open page's live-update stream, so a paused organization's pages stop at once.
     dropClients() { for (const res of clients) res.end(); clients.clear(); },
     // The account for a sign-in, if this organization has one with that email.
-    login: em => db.prepare('SELECT id, pass_hash FROM users WHERE email = ?').get(em) || null,
+    login: em => { const u = db.prepare('SELECT id, pass_hash FROM users WHERE email = ?').get(em); return u ? {...u, left: S.people.some(p => p.uid === String(u.id) && p.left)} : null; },
     endSession: token => A.endSession(db, token),
     // One API request for this organization. `token` is the session token from the cookie, without the organization.
     handle(req, res, {pathname, body, raw, token, base}) {

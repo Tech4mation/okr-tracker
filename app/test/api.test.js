@@ -816,3 +816,36 @@ test('the import sets line managers by email, whatever the row order, and says w
   assert.match(out.managers.find(m => m.includes('Max Imp')), /loop/);
   assert.match(out.managers.find(m => m.includes('Ned Imp')), /themselves/);
 });
+
+// ---------- switch someone off when they leave (TPD-1893) ----------
+test('a leaver is signed out and switched off, keeps their records, and can be switched back on', async () => {
+  await ok(ben.get('/api/state'));
+  await no(act(ana, 'person.leave', {id: P('Ben Uche').id}));                  // only HR and the CEO
+  await no(act(hr, 'person.leave', {id: P('Hana Lee').id}));                   // not yourself
+  await no(act(hr, 'person.leave', {id: P('Cleo Obi').id}));                   // HR can't for a CEO
+  await ok(act(hr, 'person.leave', {id: P('Ben Uche').id}));
+  await no(act(hr, 'person.leave', {id: P('Ben Uche').id}));
+  // Signed out at once, can't sign in, and no links can be made for them.
+  await no(ben.get('/api/state'), 401);
+  assert.match((await no(client().post('/api/login', {email: 'ben@x.co', password: 'password1'}), 403)).error, /left/);
+  await no(hr.post(`/api/people/${P('Ben Uche').id}/link`));
+  // Their records stay readable by whoever could see them before: HR and their old line manager.
+  const h = await state(hr), m = await state(mo);
+  assert.equal(h.people.find(p => p.name === 'Ben Uche').left, today());
+  assert.ok(h.docs.some(d => d.owner === 'Ben Uche') && m.docs.some(d => d.owner === 'Ben Uche'));
+  assert.ok(m.leave.some(l => l.owner === 'Ben Uche'));
+  // They no longer count: not on the leaderboard, not sent the survey, no new goals, no email.
+  assert.ok(!('Ben Uche' in m.board) && 'Ana Ade-Okon' in m.board);
+  assert.ok(!O.M.recipients().some(p => p.name === 'Ben Uche'));
+  await no(act(mo, 'okr.add', {objective: 'For a leaver', owner: 'Ben Uche', krs: [{title: 'One'}, {title: 'Two'}]}));
+  O.mailer.notify('invite', ['Ben Uche', 'Ana Ade-Okon'], {subject: 'Test', text: 'Test', tab: null, key: 'leaver-test'});
+  assert.deepEqual(O.db.prepare("SELECT to_name FROM outbox WHERE key LIKE 'leaver-test:%'").all().map(r => r.to_name), ['Ana Ade-Okon']);
+  // Whoever reported to a leaver moves up to the leaver's manager.
+  await ok(act(hr, 'person.leave', {id: P('Jo Imp').id}));
+  assert.equal(P('Ike Imp').mgr, P('Mo Bello').id);
+  // Switched back on, they sign in again with the password they had.
+  await ok(act(hr, 'person.return', {id: P('Ben Uche').id}));
+  await ok(ben.post('/api/login', {email: 'ben@x.co', password: 'password1'}));
+  assert.equal((await ok(ben.get('/api/state'))).real.name, 'Ben Uche');
+  assert.equal((await state(hr)).people.find(p => p.name === 'Ben Uche').left, undefined);
+});
