@@ -33,7 +33,7 @@ if (cmd) {
   const orgs = P.list();
   const die = msg => { console.error(msg); process.exit(1); };
   // An organization's runtime for one command: its database, its rules, no web server.
-  const open = row => createOrg({id: row.id, db: openDb(P.dbFile(row.id)), log: {error() {}},
+  const open = row => createOrg({id: row.id, name: row.name, db: openDb(P.dbFile(row.id)), log: {error() {}},
     registry: {elsewhere: em => { const o = P.orgOfEmail(em); return !!o && o !== row.id; }, sync: list => P.syncEmails(row.id, list)}});
   const pick = id => {
     if (id) return P.get(id) || die(`No organization with the id "${id}". Run "npm run orgs" to list them.`);

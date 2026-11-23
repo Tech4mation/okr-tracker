@@ -62,6 +62,8 @@ Then set up nginx from `deploy/nginx.conf`. The live-updates stream (`/api/event
 
 **Sign-up:** any company can start its own tracker from the sign-in page ("Create its tracker"). The person enters the company name, their name, work email and a password; we email a link to confirm the address, valid 24 hours. Nothing is created until they open it. Then the company exists, empty, with them as its CEO, and they are signed in. The form never says whether an address is already in use: that address's owner gets an email saying they already have an account instead. Sign-ups are limited to 5 an hour from one address and 3 emails an hour to one inbox. Sign-up needs email to be set up; `OPEN_SIGNUP=false` turns it off.
 
+**A new company starts clean:** only its CEO, its own company name (shown in the browser tab, down the side of every page and in its emails), and no subsidiaries until it adds them. The name can be changed in **Settings → Your company**, along with an optional Monday reminder for everyone's dashboard. **Settings → Sample data** loads a made-up company of seven people with goals, standups and leave, to see the tracker filled in; it can only be loaded while the company is empty, sample people can't sign in, and **Clear sample data** removes exactly the sample and nothing anyone added themselves.
+
 **The platform page** at `https://okr.yourcompany.com/platform` is for whoever runs the platform, not for the companies on it. Companies sign up themselves; nobody here creates or approves them. From it you:
 - see every organization: its CEO, number of people, when it was created and when someone last used it;
 - send a locked-out CEO a password reset link (or a fresh invite, if they never chose a password);

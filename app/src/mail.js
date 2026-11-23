@@ -1,7 +1,7 @@
 // Section 13: the same alerts the dashboard shows, sent by email. Immediate alerts are queued by the action that
 // caused them, inside the same transaction; routine chasing goes out once a day as a single digest per person.
 // Every email is logged in the outbox, so HR can prove what went out and see what failed.
-import {ALERTS, EMAIL_RE, today, plural} from '../public/model.js';
+import {ALERTS, EMAIL_RE, today, plural, senderName} from '../public/model.js';
 
 const RETRY_MINUTES = [1, 5, 30, 120];
 const TAB_NAMES = {appr: 'Approvals', okrs: 'OKRs', stand: 'Standup', review: 'Friday Review', ci: 'Check-ins', 'ci-leave': 'Check-ins, leave', 'ci-rev': 'Check-ins, review cycle',
@@ -10,7 +10,7 @@ const TAB_NAMES = {appr: 'Approvals', okrs: 'OKRs', stand: 'Standup', review: 'F
 export function createMailer({db, M, baseUrl, transport, log = console}) {
   const {S} = M;
   const link = tab => `${baseUrl()}/${tab ? '#' + tab : ''}`;
-  const footer = '\n\n--\nTeam OKR Tracker. Open the app to act on this.\nHR chooses which alerts are emailed in Settings.';
+  const footer = () => `\n\n--\n${S.cfg.company ? S.cfg.company + ' on ' : ''}Team OKR Tracker. Open the app to act on this.\nHR chooses which alerts are emailed in Settings.`;
   const ins = db.prepare(`INSERT OR IGNORE INTO outbox (key, kind, to_name, to_email, subject, body, status, error, next_at, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
@@ -20,7 +20,7 @@ export function createMailer({db, M, baseUrl, transport, log = console}) {
     // NT-2: someone with no valid address is reported to HR rather than failing silently.
     const status = !EMAIL_RE.test(em) ? 'no-address' : transport ? 'queued' : 'not-set-up';
     const error = status === 'no-address' ? 'No valid email address on their record.' : status === 'not-set-up' ? 'Email is not set up on the server.' : '';
-    ins.run(key, kind, name, em, subject, `Hello ${name.split(' ')[0]},\n\n${text}${footer}`, status, error, Date.now(), Date.now());
+    ins.run(key, kind, name, em, subject, `Hello ${name.split(' ')[0]},\n\n${text}${footer()}`, status, error, Date.now(), Date.now());
   }
 
   // Called by actions, inside their transaction. Only alerts set to "straight away" are queued here.
@@ -58,7 +58,7 @@ export function createMailer({db, M, baseUrl, transport, log = console}) {
       const due = db.prepare("SELECT * FROM outbox WHERE status = 'queued' AND next_at <= ? ORDER BY id LIMIT 25").all(Date.now());
       for (const m of due) {
         try {
-          await transport.send({to: m.to_email, subject: m.subject, text: m.body, fromName: S.cfg.mail?.fromName, replyTo: S.cfg.mail?.replyTo});
+          await transport.send({to: m.to_email, subject: m.subject, text: m.body, fromName: senderName(S.cfg), replyTo: S.cfg.mail?.replyTo});
           db.prepare("UPDATE outbox SET status = 'sent', attempts = attempts + 1, error = '', sent_at = ? WHERE id = ?").run(Date.now(), m.id);
         } catch (err) {
           const tries = m.attempts + 1, last = tries > RETRY_MINUTES.length;
@@ -73,8 +73,8 @@ export function createMailer({db, M, baseUrl, transport, log = console}) {
   async function sendTest(p) {
     if (!transport) throw new Error('Email is not set up on the server. Set SMTP_HOST and MAIL_FROM (see README).');
     if (!EMAIL_RE.test(p.email || '')) throw new Error('Your record has no valid email address.');
-    await transport.send({to: p.email, subject: 'Test email from Team OKR Tracker', text: `Hello ${p.name.split(' ')[0]},\n\nThis is a test. If you can read it, alerts can reach your inbox.${footer}`,
-      fromName: S.cfg.mail?.fromName, replyTo: S.cfg.mail?.replyTo});
+    await transport.send({to: p.email, subject: 'Test email from Team OKR Tracker', text: `Hello ${p.name.split(' ')[0]},\n\nThis is a test. If you can read it, alerts can reach your inbox.${footer()}`,
+      fromName: senderName(S.cfg), replyTo: S.cfg.mail?.replyTo});
     db.prepare(`INSERT INTO outbox (key, kind, to_name, to_email, subject, body, status, next_at, created_at, sent_at, attempts) VALUES (?, 'test', ?, ?, 'Test email', '', 'sent', 0, ?, ?, 1)`)
       .run(`test:${Date.now()}:${p.name}`, p.name, p.email, Date.now(), Date.now());
   }
