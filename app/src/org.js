@@ -17,7 +17,7 @@ const password = v => { const s = String(v || ''); if (s.length < 8) fail(400, '
 // For an organization running on its own, as in some tests: no other organization holds any address.
 const ALONE = {elsewhere: () => false, sync() {}};
 
-export function createOrg({id, db, filesDir = '', transport = null, baseUrl = () => 'http://localhost', cookieSecure = false,
+export function createOrg({id, name = '', db, filesDir = '', transport = null, baseUrl = () => 'http://localhost', cookieSecure = false,
   registry = ALONE, needsSetup = null, log = console}) {
   const M = createModel();
   const {S} = M;
@@ -82,7 +82,15 @@ export function createOrg({id, db, filesDir = '', transport = null, baseUrl = ()
     if (!S.cfg.onbWho.includes('Manager')) S.cfg.onbWho.unshift('Manager');
     if (!S.cfg.onbWho.includes('HR')) S.cfg.onbWho.unshift('HR');
     delete S.cfg.reqExec; delete S.cfg.execAt;
+    // TPD-1890. An organization from before company names gets its name from the platform, and keeps the Monday
+    // all-teams call reminder it always showed. Emails follow the company name unless HR chose a sender name.
+    if (!S.cfg.company) {
+      if (S.people.length && !S.cfg.monNote) S.cfg.monNote = 'Today: mandatory all-teams call at 9:00 AM to review business priorities.';
+      S.cfg.company = String(name || '').trim().slice(0, 80) || 'My company';
+    }
+    if (S.cfg.mail.fromName === 'Team OKR Tracker') S.cfg.mail.fromName = '';
   });
+  let company = S.cfg.company;
   // Every address this organization holds, for the platform's email -> organization list.
   const emails = () => [...S.people.map(p => p.email), ...db.prepare('SELECT email FROM users').all().map(r => r.email)];
   registry.sync(emails());
@@ -93,6 +101,8 @@ export function createOrg({id, db, filesDir = '', transport = null, baseUrl = ()
     const out = store.run(fn);
     afterCommit.splice(0).forEach(f => f());
     registry.sync(emails());
+    // A rename in Settings reaches the platform's list too.
+    if (S.cfg.company !== company) { company = S.cfg.company; registry.renamed?.(company); }
     broadcast();
     mailer.flush().catch(err => log.error(err));
     return out;
@@ -209,6 +219,7 @@ export function createOrg({id, db, filesDir = '', transport = null, baseUrl = ()
     ['POST', /^\/api\/people\/([\w-]+)\/link$/, (c, b, req, res, m) => {
       const e = groupOnly(c), p = S.people.find(x => x.id === m[1]) || fail(404, 'That person is no longer in the directory.');
       if (p.role === 'ceo' && e.role !== 'ceo') fail(403, 'Only the CEO can do that for a CEO.');
+      if (p.sample) fail(400, `${p.name} is sample data and can't sign in. Clear the sample data in Settings when you're ready to add your own people.`);
       const emailable = !!transport && EMAIL_RE.test(p.email || '');
       const sendMail = (kind, subject, text) => { if (emailable) change(() => mailer.notify(kind, [p.name], {subject, text, tab: null, key: `${kind}:${p.id}:${now()}`})); };
       if (p.uid) {
@@ -218,7 +229,7 @@ export function createOrg({id, db, filesDir = '', transport = null, baseUrl = ()
       }
       if (!EMAIL_RE.test(p.email || '')) fail(400, `Add an email address for ${p.name} first. It is what they sign in with.`);
       const url = inviteLink(c.base, p.id);
-      sendMail('invite', 'You have been invited to Team OKR Tracker', `${e.name} has added you to Team OKR Tracker. Use this link to choose a password and sign in. It works once, within 14 days:\n${url}\n\nYou will sign in with this email address.`);
+      sendMail('invite', `${S.cfg.company}: you have been invited to Team OKR Tracker`, `${e.name} has added you to ${S.cfg.company}'s Team OKR Tracker. Use this link to choose a password and sign in. It works once, within 14 days:\n${url}\n\nYou will sign in with this email address.`);
       return {url, kind: 'invite', emailed: emailable, msg: emailable ? `Invite emailed to ${p.email}, valid for 14 days.` : `Invite link for ${p.name}, valid for 14 days.`};
     }],
 

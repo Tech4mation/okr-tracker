@@ -1,8 +1,9 @@
 // Every change anyone can make, as a named action the server runs against its own copy of the data.
 // The page calls these by name; nothing it sends is trusted. Each action re-checks who may do it, using the
 // same rules the page uses to decide which buttons to show (public/model.js), so the two cannot drift apart.
-import {ROLES, SSTAT, KRTYPE, RKIND, HR_ACTIONS, ALERTS, ALERT_MODES, EMAIL_RE, CFG0, uuid, today, curWeek, curM, curY,
+import {COLS, ROLES, SSTAT, KRTYPE, RKIND, HR_ACTIONS, ALERTS, ALERT_MODES, EMAIL_RE, CFG0, uuid, today, curWeek, curM, curY,
   parseIso, isIsoDate, isWeek, plural, parseCsv} from '../public/model.js';
+import {sampleRecords} from './sample.js';
 
 export class Refusal extends Error {}
 const no = msg => { throw new Refusal(msg); };
@@ -343,9 +344,9 @@ export function createActions(M, hooks) {
       // A list where entries can be renamed (the rename follows through) and removed (only when nothing uses them).
       // Every check runs before anything is renamed, so a refusal leaves the data untouched.
       const renames = [];
-      function list(raw, oldVals, label, max, from, inUse, rename) {
+      function list(raw, oldVals, label, max, from, inUse, rename, min = 1) {
         const vals = arr(raw).map(x => str(x, max, label));
-        if (!vals.length) no(`Keep at least one ${label.toLowerCase()}.`);
+        if (vals.length < min) no(`Keep at least one ${label.toLowerCase()}.`);
         if (vals.length > 30) no(`At most 30 ${label.toLowerCase()} entries.`);
         if (new Set(vals.map(x => x.toLowerCase())).size !== vals.length) no(`Two ${label.toLowerCase()} entries share a name.`);
         const src = vals.map((_, i) => { const x = arr(from)[i]; return oldVals.includes(x) ? x : null; });
@@ -355,7 +356,7 @@ export function createActions(M, hooks) {
       }
       const subs = list(c.subs, old.subs, 'Subsidiary', 40, a.from?.subs, x => S.people.some(p => p.sub === x) || S.okrs.some(o => o.sub === x) || S.roles.some(r => r.sub === x) || S.tmpl.some(t => t.sub === x),
         (o2, n) => { S.people.forEach(p => { if (p.sub === o2) p.sub = n; }); S.okrs.forEach(o => { if (o.sub === o2) o.sub = n; });
-          S.roles.forEach(r => { if (r.sub === o2) r.sub = n; }); S.tmpl.forEach(t => { if (t.sub === o2) t.sub = n; }); S.onb.forEach(t => { if (t.sub === o2) t.sub = n; }); });
+          S.roles.forEach(r => { if (r.sub === o2) r.sub = n; }); S.tmpl.forEach(t => { if (t.sub === o2) t.sub = n; }); S.onb.forEach(t => { if (t.sub === o2) t.sub = n; }); }, 0);
       const lt = arr(c.leave);
       const leaveTypes = list(lt.map(x => x && x.type), old.leave.map(x => x.type), 'Leave type', 40, a.from?.leave, x => S.leave.some(l => l.type === x), (o2, n) => S.leave.forEach(l => { if (l.type === o2) l.type = n; }));
       const etypes = list(c.etypes, old.etypes, 'Contract type', 40, a.from?.etypes, x => S.roles.some(r => r.etype === x), (o2, n) => S.roles.forEach(r => { if (r.etype === o2) r.etype = n; }));
@@ -365,14 +366,15 @@ export function createActions(M, hooks) {
         (o2, n) => { S.tmpl.forEach(t => t.tasks.forEach(k => { if (k.who === o2) k.who = n; })); S.onb.forEach(o => o.tasks.forEach(k => { if (k.who === o2) k.who = n; })); });
       const m = c.mail && typeof c.mail === 'object' ? c.mail : {};
       const modes = {}; Object.keys(ALERTS).forEach(k => { modes[k] = oneOf(m.modes?.[k] ?? old.mail.modes[k], ALERT_MODES.map(x => x[0]), 'email timing'); });
-      const next = {subs, etypes, closeWhy, onbWho,
+      // TPD-1890: the company's own name (the page title, the sidebar, emails) and an optional Monday reminder.
+      const next = {company: str(c.company, 80, 'The company name'), monNote: str(c.monNote, 200, 'The Monday reminder', false), subs, etypes, closeWhy, onbWho,
         leave: leaveTypes.map((type, i) => ({type, days: int(lt[i]?.days ?? 0, 0, 365, `Days for ${type}`)})),
         cur: str(c.cur, 3, 'The money symbol') || old.cur, reqMgr: c.reqMgr ? 1 : 0, execAll: c.execAll ? 1 : 0,
         yearStart: int(c.yearStart, 0, 11, 'The goal year start'), staleDays: int(c.staleDays, 1, 365, 'The chasing window'),
         riskAt: int(c.riskAt, 1, 200, 'The at-risk line'), behindAt: int(c.behindAt, 1, 100, 'The off-track line'), aheadAt: int(c.aheadAt, 100, 500, 'The ahead line'),
         standupWeeks: int(c.standupWeeks, 0, 4, 'Expected standups'), enpsDays: int(c.enpsDays, 7, 365, 'The recommend-question interval'),
         reviewDueDays: int(c.reviewDueDays, 1, 180, 'The self-review window'),
-        mail: {fromName: str(m.fromName, 80, 'The sender name', false) || 'Team OKR Tracker', replyTo: email(m.replyTo, false),
+        mail: {fromName: str(m.fromName, 80, 'The sender name', false), replyTo: email(m.replyTo, false),
           digestHour: int(m.digestHour ?? old.mail.digestHour, 0, 23, 'The daily email hour'), modes}};
       if (next.behindAt > next.riskAt) no('The off-track line has to be at or below the at-risk line.');
       renames.forEach(f => f());
@@ -384,6 +386,34 @@ export function createActions(M, hooks) {
       const d = CFG0();
       ['yearStart', 'staleDays', 'riskAt', 'behindAt', 'aheadAt', 'standupWeeks', 'enpsDays', 'reviewDueDays', 'reqMgr', 'execAll', 'cur', 'mail'].forEach(k => { S.cfg[k] = d[k]; });
       return 'Policy numbers and email settings are back to the defaults. Your lists are unchanged.';
+    },
+
+    // ---------- sample data (TPD-1890) ----------
+    // A made-up company to look at before entering real people. Only while the organization is still empty.
+    'sample.load'(e) {
+      group(e);
+      if (S.people.some(p => p.sample)) no('The sample data is already loaded.');
+      const busy = S.people.some(p => p.role !== 'ceo') || COLS.some(c => c !== 'people' && S[c].length);
+      if (busy) no('Sample data can only be loaded while the organization is empty. It would mix with your own people and goals.');
+      const ceo = S.people.find(p => p.role === 'ceo') || e;
+      const r = sampleRecords(ceo, (S.cfg.leave.find(l => l.days > 0) || {}).type);
+      const clash = r.people.find(p => S.people.some(x => x.name.toLowerCase() === p.name.toLowerCase()));
+      if (clash) no(`Someone called ${clash.name} is already in the directory, so the sample data can't be loaded.`);
+      S.people.push(...r.people); S.okrs.push(...r.okrs); S.stand.push(...r.stand); S.leave.push(...r.leave);
+      return `Sample data loaded: ${r.people.length} made-up people, with goals, standups and leave. Clear it in Settings when you're ready.`;
+    },
+    // Removes exactly what "Load sample data" added, and anything the sample people own; nothing anyone entered for real people.
+    'sample.clear'(e) {
+      group(e);
+      const gone = S.people.filter(p => p.sample);
+      if (!gone.length) no('There is no sample data to clear.');
+      const ids = new Set(gone.map(p => p.id)), names = new Set(gone.map(p => p.name));
+      // Anyone who reported to a sample person moves up to the first real manager above them.
+      const up = id => { let p = S.people.find(x => x.id === id); while (p && ids.has(p.id)) p = S.people.find(x => x.id === p.mgr); return p ? p.id : null; };
+      S.people.forEach(p => { if (!ids.has(p.id) && p.mgr && ids.has(p.mgr)) p.mgr = up(p.mgr); });
+      const theirs = x => x.sample || names.has(x.owner) || names.has(x.with) || names.has(x.to) || names.has(x.from);
+      COLS.forEach(c => { S[c] = S[c].filter(x => !theirs(x)); });
+      return `Sample data cleared: ${gone.length} made-up people and everything that went with them. Your own records are untouched.`;
     },
 
     // ---------- wellbeing and leave (section 7) ----------

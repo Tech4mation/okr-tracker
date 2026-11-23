@@ -94,6 +94,14 @@ test('writes without the app header are refused', async () => {
   await no(ceo.call('POST', '/api/act', {a: 'person.add', args: {name: 'X', role: 'member'}}, {noHeader: true}), 403);
 });
 
+test('a new organization starts with its own name and no subsidiaries (TPD-1890)', async () => {
+  const c = (await state(ceo)).cfg;
+  assert.equal(c.company, 'Acme'); assert.deepEqual(c.subs, []); assert.equal(c.monNote, '');
+  // It adds its own subsidiaries in Settings.
+  await ok(act(ceo, 'cfg.save', {cfg: {...c, subs: ['NativeTalk', 'Connect', 'Cyber Villa']}, from: {subs: [], leave: c.leave.map(x => x.type), etypes: c.etypes, closeWhy: c.closeWhy, onbWho: c.onbWho}}));
+  assert.deepEqual(S.cfg.subs, ['NativeTalk', 'Connect', 'Cyber Villa']);
+});
+
 test('HR and the CEO build the directory with reporting lines (DR-1)', async () => {
   const add = (c, a) => ok(act(c, 'person.add', a));
   await add(ceo, {name: 'Hana Lee', email: 'hana@x.co', role: 'hr', sub: '', team: 'People'});
@@ -554,6 +562,8 @@ test('the single-company data folder from before becomes the first organization,
   assert.equal(r.status, 200);
   const st = await r.json();
   assert.equal(st.real.name, 'Old Boss'); assert.ok(st.S.okrs.some(o => o.objective === 'Keep going'));
+  // It is named from FIRST_ORG_NAME, and keeps the Monday reminder older builds always showed (TPD-1890).
+  assert.equal(st.S.cfg.company, 'Old Co'); assert.match(st.S.cfg.monNote, /all-teams call/);
   const login = await fetch(b2 + '/api/login', {method: 'POST', headers: {'X-OKR': '1', 'Content-Type': 'application/json'}, body: JSON.stringify({email: 'boss@old.co', password: 'password1'})});
   assert.equal(login.status, 200);
   assert.ok(decodeURIComponent(login.headers.get('set-cookie')).startsWith(`okr_session=${id}.`));
@@ -697,4 +707,49 @@ test('sign-up can be switched off, and is off without email', async () => {
     fs.rmSync(dir, {recursive: true, force: true});
   }
   for (const p of ['/signup', '/confirm']) assert.equal((await fetch(base + p)).status, 200, p);
+});
+
+// ---------- a clean start with the company's own name (TPD-1890) ----------
+test('the company name can be changed, and reaches emails and the platform list', async () => {
+  const c = () => JSON.parse(JSON.stringify(S.cfg));
+  const from = x => ({subs: x.subs, leave: x.leave.map(l => l.type), etypes: x.etypes, closeWhy: x.closeWhy, onbWho: x.onbWho});
+  await no(act(ceo, 'cfg.save', {cfg: {...c(), company: ''}, from: from(c())}));
+  await no(act(mo, 'cfg.save', {cfg: {...c(), company: 'Not mine'}, from: from(c())}));
+  await ok(act(ceo, 'cfg.save', {cfg: {...c(), company: 'Acme Holdings'}, from: from(c())}));
+  assert.equal(server.okr.platform.get(O.id).name, 'Acme Holdings');
+  assert.equal((await state(ana)).cfg.company, 'Acme Holdings');
+  inbox.length = 0;
+  await ok(hr.post(`/api/people/${P('Ivy Inv').id}/link`));
+  await O.mailer.flush();
+  const mail = inbox.find(m => m.includes('To: <ivy@x.co>'));
+  const from64 = mail.match(/^From: =\?UTF-8\?B\?([^?]+)\?=/m);
+  assert.equal(Buffer.from(from64[1], 'base64').toString(), 'Acme Holdings · Team OKR Tracker');
+  assert.match(mail, /Subject: Acme Holdings: you have been invited/);
+  assert.ok(mailBody(mail).includes('Acme Holdings on Team OKR Tracker'));
+  await ok(act(ceo, 'cfg.save', {cfg: {...c(), company: 'Acme'}, from: from(c())}));
+  assert.equal(server.okr.platform.get(O.id).name, 'Acme');
+});
+
+test('sample data loads only into an empty organization, can\'t sign in, and clears exactly', async () => {
+  const H = server.okr.addOrg('Hotel Co'), hal = client();
+  await ok(hal.post('/api/setup', {token: tok(H.setupLink(base)), name: 'Hal Hotel', email: 'hal@hotel.co', password: 'password1'}));
+  assert.equal((await state(hal)).cfg.company, 'Hotel Co');
+  await ok(act(hal, 'sample.load'));
+  await no(act(hal, 'sample.load'));
+  let s = await state(hal);
+  assert.equal(s.people.filter(p => p.sample).length, 7);
+  assert.ok(s.okrs.length === 7 && s.stand.length > 5 && s.leave.length === 2);
+  assert.equal(H.mailer.report().rows.length, 0);                                // loading sends no email
+  await no(hal.post(`/api/people/${H.S.people.find(p => p.name === 'Kemi Adeyemi').id}/link`));
+  // What she adds herself stays when the sample goes, even if it hung off a sample manager.
+  await ok(act(hal, 'person.add', {name: 'Rita Real', email: 'rita@hotel.co', role: 'member', mgr: H.S.people.find(p => p.name === 'Tunde Bakare').id}));
+  await ok(act(hal, 'okr.add', {objective: 'A real goal', owner: 'Rita Real', krs: [{title: 'One'}, {title: 'Two'}]}));
+  await ok(act(hal, 'sample.clear'));
+  s = await state(hal);
+  assert.deepEqual(s.people.map(p => p.name).sort(), ['Hal Hotel', 'Rita Real']);
+  assert.equal(H.S.people.find(p => p.name === 'Rita Real').mgr, H.S.people.find(p => p.name === 'Hal Hotel').id);
+  assert.deepEqual(s.okrs.map(o => o.objective), ['A real goal']);
+  assert.deepEqual([s.stand.length, s.leave.length], [0, 0]);
+  await no(act(hal, 'sample.clear'));
+  assert.match((await no(act(hal, 'sample.load'))).error, /empty/);
 });

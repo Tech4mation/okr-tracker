@@ -180,6 +180,7 @@ function readCfg() {
   c.onbWho = c.onbWho.map((x, i) => g('cf-ow-' + i) ? g('cf-ow-' + i).value.trim() : x);
   c.etypes = c.etypes.map((x, i) => g('cf-et-' + i) ? g('cf-et-' + i).value.trim() : x);
   c.closeWhy = c.closeWhy.map((x, i) => g('cf-cw-' + i) ? g('cf-cw-' + i).value.trim() : x);
+  c.company = g('cf-company').value.trim(); c.monNote = g('cf-monnote').value.trim();
   c.cur = g('cf-cur').value.trim() || c.cur;
   c.reqMgr = +g('cf-rm').value ? 1 : 0; c.execAll = +g('cf-re').value ? 1 : 0;
   ['yearStart:cf-ys', 'staleDays:cf-stale', 'riskAt:cf-risk', 'behindAt:cf-behind', 'aheadAt:cf-ahead', 'standupWeeks:cf-su', 'enpsDays:cf-enps', 'reviewDueDays:cf-rev']
@@ -280,14 +281,14 @@ function viewDash(e) {
   const todo = attentionFor(e).map(x => [x.text, x.tab ? tabBtn(x.tab, x.btn || 'Open', '') : '']);
   if (ST.mail && !ST.previewing && ST.mail.failed) todo.unshift([`${plural(ST.mail.failed, 'email', 'emails')} could not be delivered in the last two weeks.`, tabBtn('settings', 'See why', '')]);
   const company = S.okrs.filter(o => o.owner === 'Company' && cv(o, e));
-  const subCard = isGroup(e) ? `<section class="card"><div class="sec-h"><h2>Subsidiaries</h2>${subFilter ? '<button class="btn quiet sm" data-act="subfilter" data-s="">Show all</button>' : '<span class="sub">Select one to filter the whole app</span>'}</div><div class="list">${subs().map(n => {
+  const subCard = isGroup(e) ? `<section class="card"><div class="sec-h"><h2>Subsidiaries</h2>${subFilter ? '<button class="btn quiet sm" data-act="subfilter" data-s="">Show all</button>' : '<span class="sub">Select one to filter the whole app</span>'}</div><div class="list">${subs().length ? '' : '<p class="sub" style="margin:0">No subsidiaries yet. Add them in Settings if your company has any.</p>'}${subs().map(n => {
     const ps = S.people.filter(p => p.sub === n && p.role !== 'hr'), pct = ps.length ? ps.reduce((t, p) => t + personPct(p.name), 0) / ps.length : 0;
     const pend = S.okrs.filter(o => person(o.owner)?.sub === n).reduce((t, o) => t + o.krs.filter(k => k.req && k.pct !== 100).length, 0);
     const lk = pend && e.role === 'ceo';
     return `<div class="subrow${subFilter === n ? ' on' : ''}"><button class="subhit" data-act="subfilter" data-s="${esc(n)}" aria-pressed="${subFilter === n}"><span class="grow"><b>${esc(n)}</b><span class="sub">${plural(ps.length, 'person', 'people')}${pend && !lk ? ' · ' + pend + ' awaiting approval' : ''}</span></span><span class="subbar">${bar(pct)}</span><span class="pc">${r0(pct)}%</span></button>${lk ? `<button class="pendlink" data-act="subappr" data-s="${esc(n)}" title="Review ${esc(n)} requests">${pend} awaiting approval</button>` : ''}</div>`; }).join('')}</div></section>` : '';
   const okrRow = o => `<button class="rowlink" data-act="tab" data-t="okrs" aria-label="Open OKRs: ${esc(o.objective)}"><span class="kr"><span class="t"><b>${esc(o.objective)}</b><span class="sub" style="display:block">${plural(o.krs.length, 'key result', 'key results')}</span></span></span><span class="prog" style="margin-top:8px">${bar(okrPct(o))}<span class="pc">${r0(okrPct(o))}%</span></span></button>`;
   const rows = lbRows(e);
-  return `${monCall()}
+  return `${sampleBanner(e)}${monCall()}
   <section class="hero"><div><h1>Welcome back, ${esc(e.name.split(' ')[0])}</h1><p>${esc(ROLES[e.role] || e.role)} · ${esc(where(e))}${subFilter && isGroup(e) ? ' · showing ' + esc(subFilter) + ' only' : ''}. Here is where things stand this week.</p></div>${weekNav(true)}</section>
   <div class="stats">${stats.join('')}</div>
   <div class="cols"><div class="stack">
@@ -311,7 +312,9 @@ function viewLead(e) {
   ${all.length > 1 ? fbar('lead', {ph: 'Search by name', team: teamsIn(all.map(x => x.r.p.name)), count: `Showing ${rows.length} of ${all.length}. Ranks stay the same when filtered.`}) : ''}
   <div class="card">${rows.length ? `<div class="list">${rows.map(({r, i}) => lbRow(r, i, e.name)).join('')}</div>` : empty(all.length ? 'No one matches these filters.' : 'No people to rank yet. HR adds people in the Directory.')}</div>`;
 }
-const monCall = () => new Date().getDay() === 1 && wk === curWeek() ? '<div class="banner info">Today: mandatory all-teams call at 9:00 AM to review business priorities.</div>' : '';
+const monCall = () => S.cfg.monNote && new Date().getDay() === 1 && wk === curWeek() ? `<div class="banner info">${esc(S.cfg.monNote)}</div>` : '';
+// Sample data is on show: say so, and where to clear it (TPD-1890).
+const sampleBanner = e => isGroup(e) && S.people.some(p => p.sample) ? '<div class="banner info"><span>You are looking at sample data: a made-up company that shows how the tracker works. Clear it in Settings when you are ready to add your own people.</span></div>' : '';
 
 function editForm(o, direct) {
   const d = editing;
@@ -1018,7 +1021,12 @@ function viewSet(e) {
   const was = (key, i) => cfgDraft.from[key][i];
   const mr = mailRep;
   const st = s => ({sent: ['Sent', 'good'], queued: ['Waiting to send', 'warn'], failed: ['Failed', 'bad'], 'no-address': ['No email address', 'bad'], 'not-set-up': ['Email not set up', '']}[s] || [s, '']);
+  const hasSample = S.people.some(p => p.sample), empty = !hasSample && S.people.every(p => p.role === 'ceo') && !S.okrs.length && !S.stand.length && !S.leave.length && !S.roles.length;
   return `${pageHead('Settings', 'The policy numbers behind the rest of the app. Only the CEO and HR can change these.')}
+  <section class="card"><div class="sec-h"><h2>Your company</h2></div>
+    <div class="row" style="align-items:flex-start">
+      <label class="f grow" style="flex-basis:220px"><span>Company name</span><input type="text" id="cf-company" value="${esc(c.company)}" maxlength="80" required><span class="sub">Shown at the top of every page and in the emails your people receive</span></label>
+      <label class="f grow" style="flex-basis:320px"><span>Monday reminder <span class="sub">(optional)</span></span><input type="text" id="cf-monnote" value="${esc(c.monNote || '')}" maxlength="200" placeholder="For example: all-hands call at 9:00 AM"><span class="sub">Shown on everyone's dashboard on Mondays</span></label></div></section>
   <section class="card"><div class="sec-h"><h2>Subsidiaries</h2><span class="sub">${plural(c.subs.length, 'subsidiary', 'subsidiaries')}</span></div>
     <div class="list">${c.subs.map((x, i) => { const inUse = was('subs', i) && S.people.some(p => p.sub === was('subs', i));
       return `<div class="kr"><div class="t"><input type="text" id="cf-sub-${i}" value="${esc(x)}" aria-label="Subsidiary ${i + 1}" maxlength="40"></div>
@@ -1081,6 +1089,13 @@ function viewSet(e) {
 
   <div class="row"><button class="btn" data-act="savecfg">Save settings</button><button class="btn quiet" data-act="discardcfg">Discard changes</button><button class="btn quiet" data-act="resetcfg">Reset numbers to defaults</button></div>
 
+  ${hasSample ? `<section class="card"><div class="sec-h"><h2>Sample data</h2>${chip('Loaded', 'warn')}</div>
+    <p class="sub" style="margin:0">A made-up company of ${plural(S.people.filter(p => p.sample).length, 'person', 'people')}, with goals, standups and leave, to show how the tracker works. Sample people can't sign in. Clearing it removes only the sample; anything you added yourself stays.</p>
+    <div class="row"><button class="btn" data-act="sampleclear">Clear sample data</button></div></section>`
+  : empty ? `<section class="card"><div class="sec-h"><h2>Sample data</h2></div>
+    <p class="sub" style="margin:0">Want to see the tracker filled in before adding your people? Load a made-up company with goals, standups and leave, and clear it whenever you like. It can only be loaded while your company is still empty.</p>
+    <div class="row"><button class="btn ghost" data-act="sampleload">Load sample data</button></div></section>` : ''}
+
   <section class="card"><div class="sec-h"><h2>Email log</h2><div class="row">${mr && mr.configured ? '<button class="btn quiet sm" data-act="testmail">Send me a test email</button>' : ''}<button class="btn quiet sm" data-act="reloadmail">Refresh</button></div></div>
     ${!mr ? '<p class="sub" style="margin:0">Loading…</p>' : `
     <p class="sub" style="margin:0">${mr.configured ? `Sending through ${esc(mr.server)} as ${esc(mr.from)}.` : 'Nothing can be emailed until the server is given a mail account (SMTP_HOST and MAIL_FROM; see the README). Alerts still show in the app.'}
@@ -1139,7 +1154,7 @@ function viewPeople(e) {
     <td><select id="pr-r-${p.id}" aria-label="Role"${p.id === ST.realId ? ' disabled title="You can\'t change your own role"' : ''}>${roleOpts(p.role)}</select></td>
     <td><input type="text" id="pr-t-${p.id}" value="${esc(p.team || '')}" aria-label="Team" style="width:130px" maxlength="60"></td>
     <td><select id="pr-m-${p.id}" aria-label="Reports to"><option value="">Nobody</option>${S.people.filter(x => x.id !== p.id && !reportsTo(x, p)).sort((a, b) => a.name.localeCompare(b.name)).map(x => `<option value="${x.id}"${p.mgr === x.id ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select></td>
-    <td>${p.account ? `<button class="btn quiet sm" data-act="mklink" data-id="${p.id}" title="${ST.mail?.configured ? 'Email them a password reset link' : 'Make a password reset link'}">Reset link</button>` : `<button class="btn ghost sm" data-act="mklink" data-id="${p.id}" title="${ST.mail?.configured ? 'Email them an invite' : 'Make an invite link'}"${p.email ? '' : ' disabled'}>${ST.mail?.configured ? 'Send invite' : 'Invite'}</button>`}</td>
+    <td>${p.sample ? chip('Sample') : p.account ? `<button class="btn quiet sm" data-act="mklink" data-id="${p.id}" title="${ST.mail?.configured ? 'Email them a password reset link' : 'Make a password reset link'}">Reset link</button>` : `<button class="btn ghost sm" data-act="mklink" data-id="${p.id}" title="${ST.mail?.configured ? 'Email them an invite' : 'Make an invite link'}"${p.email ? '' : ' disabled'}>${ST.mail?.configured ? 'Send invite' : 'Invite'}</button>`}</td>
     <td><div class="row"><button class="btn sm" data-act="saveperson" data-id="${p.id}">Save</button>${p.id === ST.realId ? '' : confirmDel === p.id ? `<button class="btn bad sm" data-act="delperson" data-id="${p.id}">Confirm</button><button class="btn quiet sm" data-act="cancel">Cancel</button>` : `<button class="btn quiet sm" data-act="askdel" data-id="${p.id}">Remove</button>`}</div></td></tr>`
     : `<tr><td><div class="person-h">${avatar(p.name, true)}<div><b>${dosLink(e, p)}</b>${p.title ? `<div class="sub">${esc(p.title)}</div>` : ''}</div></div></td><td>${esc(p.email || '—')}</td><td>${p.sub ? chip(p.sub, SUB_TONE[p.sub] || '') : chip('Group-level')}</td><td>${chip(ROLES[p.role] || p.role, ROLE_TONE[p.role])}</td><td>${esc(p.team || '—')}</td><td>${esc(mgrOf(p)?.name || '—')}</td><td>${p.account ? chip('Active', 'good') : chip('Not yet')}</td><td></td></tr>`).join('')
     : `<tr><td colspan="8" class="empty">${filtered ? 'No one matches these filters.' : 'No people yet.'}</td></tr>`}</tbody></table></div></div>`;
@@ -1192,6 +1207,7 @@ function render() {
   const keep = [...root.querySelectorAll('input[id]:not([type=file]):not([type=hidden]):not([readonly]),textarea[id],select[id]')].map(el => ({id: el.id, v: el.value}));
   const ae = document.activeElement, focus = ae && ae.id && root.contains(ae) ? {id: ae.id, s: ae.selectionStart, e: ae.selectionEnd} : null;
   root.innerHTML = phase === 'app' && ST ? build() : authView();
+  document.title = phase === 'app' && ST && S.cfg.company ? `${S.cfg.company} · Team OKR Tracker` : 'Team OKR Tracker';
   keep.forEach(k => { const el = document.getElementById(k.id); if (el && el.value !== k.v && !/^(ok-owner|subsel|viewas|pf-sub|pf-team|pf-role|ff-.*|t[tod]-.*|ok-kt-.*|ed-kt-.*|cf-.*|ap-(from|to))$/.test(k.id)) { if (el.tagName === 'SELECT' && ![...el.options].some(o => o.value === k.v)) return; el.value = k.v; } });
   if (focus) { const el = document.getElementById(focus.id); if (el) { el.focus(); try { if (focus.s != null) el.setSelectionRange(focus.s, focus.e); } catch (_) {} } }
 }
@@ -1212,7 +1228,7 @@ function build() {
   const page = dossier ? 'Person record' : navAll.find(n => n[0] === tab)[1];
   return `<div class="app">
     <aside class="side${navOpen ? ' open' : ''}" aria-label="Sidebar">
-      <div class="side-brand"><span class="logo" aria-hidden="true"></span><span>Team OKR Tracker</span></div>
+      <div class="side-brand"><span class="logo" aria-hidden="true"></span><span>${esc(S.cfg.company || 'Team OKR Tracker')}</span></div>
       <nav aria-label="Main">${groups.map(g => `<div class="nav-lbl">${esc(g)}</div>${nav.filter(n => n[2] === g).map(([k, l]) =>
         `<button class="nav-i" data-act="tab" data-t="${k}"${tab === k && !dossier ? ' aria-current="page"' : ''}>${icon(k)}<span>${esc(l)}</span>${badges[k] ? `<span class="badge">${badges[k]}</span>` : ''}</button>`).join('')}`).join('')}</nav>
       <div class="side-user"><div class="me">${avatar(real.name)}<div class="t"><b>${esc(real.name)}</b><span>${chip(ROLES[real.role] || real.role, ROLE_TONE[real.role])} ${esc(where(real))}</span></div></div>
@@ -1222,9 +1238,9 @@ function build() {
     <div class="scrim${navOpen ? ' on' : ''}" data-act="closenav"></div>
     <div class="mainwrap">
       <header class="topbar"><button class="iconbtn menu" data-act="menu" aria-label="Open menu">${icon('menu')}</button>
-        <span class="crumb"><span class="sub">Team OKR Tracker</span><span class="sep">/</span><b>${esc(page)}</b></span>
+        <span class="crumb"><span class="sub">${esc(S.cfg.company || 'Team OKR Tracker')}</span><span class="sep">/</span><b>${esc(page)}</b></span>
         <span class="grow"></span>
-        ${isGroup(e) ? `<label class="viewas">Subsidiary <select id="subsel" class="sm" data-chg="sub"><option value="">All</option>${subs().map(x => `<option${subFilter === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select></label>` : ''}
+        ${isGroup(e) && subs().length ? `<label class="viewas">Subsidiary <select id="subsel" class="sm" data-chg="sub"><option value="">All</option>${subs().map(x => `<option${subFilter === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select></label>` : ''}
         ${real.role === 'ceo' && ST.others.length ? `<label class="viewas">Viewing as <select id="viewas" class="sm" data-chg="viewas"><option value="">me</option>${ST.others.map(p => `<option value="${p.id}"${viewAs === p.id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>` : ''}</header>
       <main class="content">${e.role === 'hr' && !ST.previewing ? '<div class="banner info"><span>You have HR access: people, documents, review cycles, the weekly survey, settings and everyone\'s goals.</span></div>' : ''}${ST.previewing ? `<div class="banner info"><span>Previewing the app as ${esc(e.name)}: you see exactly what they see. It is read-only; switch back to "me" to make changes.</span></div>` : ''}${dossier ? viewDossier(e) : views[tab](e)}</main>
       <footer class="foot"><span>Changes save as you make them and show up for everyone straight away.</span></footer>
@@ -1273,6 +1289,7 @@ root.addEventListener('click', ev => {
   else if (a === 'rmcfg') cfgRemove(b.dataset.k, i);
   else if (a === 'savecfg') { readCfg(); act('cfg.save', {cfg: cfgDraft.c, from: cfgDraft.from}).then(r => { if (r) { cfgDraft = null; render(); } }); return; }
   else if (a === 'discardcfg') cfgDraft = null;
+  else if (a === 'sampleload' || a === 'sampleclear') { act(a === 'sampleload' ? 'sample.load' : 'sample.clear').then(r => { if (r) { cfgDraft = null; render(); } }); return; }
   else if (a === 'resetcfg') { act('cfg.reset').then(r => { if (r) { cfgDraft = null; render(); } }); return; }
   else if (a === 'reloadmail') { loadMail(); return; }
   else if (a === 'testmail') { api('/api/mail/test', {method: 'POST', json: {}}).then(r => { toast(r.msg); loadMail(); }).catch(err => { toast(err.message); loadMail(); }); return; }

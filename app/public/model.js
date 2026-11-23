@@ -57,16 +57,22 @@ export const ALERTS = {
 };
 export const ALERT_MODES = [['now', 'In the app and by email straight away'], ['digest', 'In the app and in the daily email'], ['off', 'In the app only']];
 
+// A new organization's settings: its own company name (set when it is created), no subsidiaries until it adds them,
+// and common starting lists it can change.
 export const CFG0 = () => ({
-  subs: ['NativeTalk', 'Connect', 'Cyber Villa'],
+  company: '', monNote: '',
+  subs: [],
   leave: [{type: 'Annual leave', days: 25}, {type: 'Sick leave', days: 10}, {type: 'Compassionate leave', days: 5}, {type: 'Unpaid leave', days: 0}],
   yearStart: 0, staleDays: 14, riskAt: 80, behindAt: 60, aheadAt: 110,
   standupWeeks: 2, enpsDays: 28, reviewDueDays: 21, onbWho: ['HR', 'Manager'],
   cur: '₦', reqMgr: 1, execAll: 0,
   etypes: ['Permanent', 'Fixed term', 'Contract', 'Intern'],
   closeWhy: ['No longer needed', 'Budget cut', 'Filled another way', 'Reorganised'],
-  mail: {fromName: 'Team OKR Tracker', replyTo: '', digestHour: 8, modes: Object.fromEntries(Object.entries(ALERTS).map(([k, v]) => [k, v[2]]))},
+  mail: {fromName: '', replyTo: '', digestHour: 8, modes: Object.fromEntries(Object.entries(ALERTS).map(([k, v]) => [k, v[2]]))},
 });
+
+// Emails go out under the sender name HR chose, or else under the company's name.
+export const senderName = cfg => cfg.mail?.fromName || (cfg.company ? `${cfg.company} · Team OKR Tracker` : 'Team OKR Tracker');
 
 // ---------- dates and numbers ----------
 export const iso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');

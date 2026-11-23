@@ -94,6 +94,7 @@ export function openPlatform(dataDir) {
       return clash;
     },
 
+    rename: (id, name) => db.prepare('UPDATE orgs SET name = ? WHERE id = ?').run(String(name).slice(0, 80), id),
     setStatus: (id, status) => db.prepare('UPDATE orgs SET status = ? WHERE id = ?').run(status, id),
     // When someone in the organization last used it.
     touch: (id, at = Date.now()) => db.prepare('UPDATE orgs SET last_at = ? WHERE id = ?').run(at, id),

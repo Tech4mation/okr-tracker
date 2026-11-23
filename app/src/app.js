@@ -53,11 +53,12 @@ export function createApp({dataDir, publicUrl = '', cookieSecure = false, trustP
   function load(row) {
     const id = row.id;
     const org = createOrg({
-      id, db: openDb(platform.dbFile(id)), filesDir: platform.filesDir(id), transport, baseUrl: mailBase, cookieSecure, needsSetup, log,
+      id, name: row.name, db: openDb(platform.dbFile(id)), filesDir: platform.filesDir(id), transport, baseUrl: mailBase, cookieSecure, needsSetup, log,
       registry: {
         elsewhere: em => { const o = platform.orgOfEmail(em); return !!o && o !== id; },
         sync: list => { const clash = platform.syncEmails(id, list); if (clash.length) log.error(`Organization ${id} holds addresses another organization already has: ${clash.join(', ')}`); },
         // Last activity, for the platform page: written at most once a minute.
+        renamed: nu => { platform.rename(id, nu); org.name = nu; },
         active: () => { const t = Date.now(); if (t - (lastTouch.get(id) || 0) > 60e3) { lastTouch.set(id, t); platform.touch(id, t); } },
       },
     });

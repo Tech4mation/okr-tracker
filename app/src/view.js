@@ -16,6 +16,7 @@ export function viewFor(M, e) {
     if (M.canSeeDossier(e, p)) Object.assign(out, {email: p.email || '', contract: p.contract || '', notice: p.notice || '', review: p.review || '', jd: p.jd || [], hrnote: p.hrnote || null});
     if (M.canSeePay(e, p)) out.salary = p.salary || 0;
     if (group) out.account = !!p.uid;
+    if (p.sample) out.sample = true;
     return out;
   });
   const okrs = S.okrs.filter(o => o.owner === 'Company' ? (group || !o.sub || o.sub === e.sub) : scope.has(o.owner));
