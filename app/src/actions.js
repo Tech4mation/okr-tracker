@@ -273,6 +273,29 @@ export function createActions(M, hooks) {
       hooks.accounts.remove(p);
       return p.name + ' removed. Their past records are kept.';
     },
+    // TPD-1893: a leaver is switched off rather than removed. Signed out at once and unable to sign in, they keep
+    // every record; whoever reported to them moves up to their manager, as when someone is removed.
+    'person.leave'(e, a, ctx) {
+      group(e);
+      const p = personById(a.id);
+      if (p.left) no(`${p.name} is already marked as left.`);
+      if (p.id === ctx.real.id) no('You can\'t mark yourself as left.');
+      if (p.role === 'ceo' && e.role !== 'ceo') no('Only the CEO can do that for a CEO.');
+      if (p.role === 'ceo' && ceos().filter(x => !x.left).length < 2) no('There must always be a CEO.');
+      if (p.sample) no('Sample people can\'t be marked as left. Clear the sample data in Settings instead.');
+      S.people.forEach(x => { if (x.mgr === p.id) x.mgr = p.mgr || null; });
+      p.left = today();
+      hooks.accounts.disable(p);
+      return `${p.name} is marked as left. They are signed out and can't sign in; their records are kept.`;
+    },
+    'person.return'(e, a) {
+      group(e);
+      const p = personById(a.id);
+      if (!p.left) no(`${p.name} hasn't left.`);
+      if (p.role === 'ceo' && e.role !== 'ceo') no('Only the CEO can do that for a CEO.');
+      delete p.left;
+      return `${p.name} is switched back on and can sign in again. Check who they report to.`;
+    },
     // DX-2: rows that can't be added are skipped with a reason; a file that can't be read adds nobody.
     'people.import'(e, a) {
       group(e);

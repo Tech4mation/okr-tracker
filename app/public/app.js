@@ -22,6 +22,8 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '
 const dayLabel = d => { const x = parseIso(d); return d === today() ? 'Today' : d === shiftDay(today(), -1) ? 'Yesterday' : x.toLocaleDateString(undefined, {weekday: 'long', day: 'numeric', month: 'short'}); };
 const monOpts = sel => MONFULL.map((m, i) => `<option value="${i}"${sel === i ? ' selected' : ''}>${m}</option>`).join('');
 const subs = () => S.cfg.subs;
+// Everyone who hasn't left (TPD-1893): leavers keep their history but drop out of current lists and counts.
+const staff = () => S.people.filter(p => !p.left);
 // A subsidiary's colour, as chosen in Settings (TPD-1891).
 const subTone = n => S.cfg.subTone?.[n] || '';
 
@@ -34,7 +36,7 @@ let wk = curWeek(), tab = 'dash', confirmDel = null;
 let draft = {owner: null, obj: '', krs: ['', ''], ms: [null, null], kt: ['binary', 'binary'], tg: ['', ''], un: ['', '']}, showForm = false, navOpen = false;
 let editing = null, okrUpd = null, krOpen = null, ciSeg = 'week', histM = null, perfSeg = 'now', apFrom = '', apTo = '', okrTab = null, standWho = null, revWho = null,
   dossier = null, perfTab = 'all', dirView = 'table', openRev = null, openRole = null, hireTab = 'open', fillR = null, declR = null, sbR = null, closeR = null, editR = null,
-  imp = null, tdraft = null, cfgDraft = null, mailRep = null, cycleForm = false, empEdit = false, linkOut = null, welfEdit = false;
+  imp = null, confirmLeft = null, tdraft = null, cfgDraft = null, mailRep = null, cycleForm = false, empEdit = false, linkOut = null, welfEdit = false;
 
 const realMe = () => ST && S.people.find(p => p.id === ST.realId) || null;
 const eff = () => ST && S.people.find(p => p.id === ST.effId) || realMe();
@@ -102,7 +104,7 @@ function go(t) {
   if (sub && base === 'hire' && SUBTABS.hire.includes(sub)) hireTab = sub;
   if (base === 'hire' && !sub) hireTab = ['manager', 'ceo', 'hr'].includes(eff()?.role) ? 'open' : 'onb';
   if (base === 'ci' && !sub) ciSeg = 'week';
-  confirmDel = null; navOpen = false; editing = null; okrUpd = null; krOpen = null; dossier = null; imp = null; fillR = null; declR = null; sbR = null; closeR = null; editR = null; empEdit = false;
+  confirmDel = null; confirmLeft = null; navOpen = false; editing = null; okrUpd = null; krOpen = null; dossier = null; imp = null; fillR = null; declR = null; sbR = null; closeR = null; editR = null; empEdit = false;
   if (tab === 'settings') { cfgDraft = null; mailRep = null; loadMail(); }
   const h = '#' + t;
   if (location.hash !== h) history.replaceState(null, '', h);
@@ -253,7 +255,7 @@ function fbar(t, o = {}) {
     ${dirty ? `<button class="btn quiet sm" data-act="clearff" data-t="${t}">Clear filters</button>` : ''}${o.count != null ? `<span class="sub">${esc(o.count)}</span>` : ''}</div></div>`;
 }
 function lbRows(e) {
-  return [...lbScope(e)].map(n => person(n)).filter(p => p && p.role !== 'hr').map(p => ({p, pct: personPct(p.name), g: gain(p.name, wk)}))
+  return [...lbScope(e)].map(n => person(n)).filter(p => p && p.role !== 'hr' && !p.left).map(p => ({p, pct: personPct(p.name), g: gain(p.name, wk)}))
     .sort((a, b) => b.pct - a.pct || b.g - a.g || a.p.name.localeCompare(b.p.name));
 }
 function lbRow(r, i, me) {
@@ -290,7 +292,7 @@ function viewDash(e) {
   if (ST.mail && !ST.previewing && ST.mail.failed) todo.unshift([`${plural(ST.mail.failed, 'email', 'emails')} could not be delivered in the last two weeks.`, tabBtn('settings', 'See why', '')]);
   const company = S.okrs.filter(o => o.owner === 'Company' && cv(o, e));
   const subCard = isGroup(e) ? `<section class="card"><div class="sec-h"><h2>Subsidiaries</h2>${subFilter ? '<button class="btn quiet sm" data-act="subfilter" data-s="">Show all</button>' : '<span class="sub">Select one to filter the whole app</span>'}</div><div class="list">${subs().length ? '' : '<p class="sub" style="margin:0">No subsidiaries yet. Add them in Settings if your company has any.</p>'}${subs().map(n => {
-    const ps = S.people.filter(p => p.sub === n && p.role !== 'hr'), pct = ps.length ? ps.reduce((t, p) => t + personPct(p.name), 0) / ps.length : 0;
+    const ps = staff().filter(p => p.sub === n && p.role !== 'hr'), pct = ps.length ? ps.reduce((t, p) => t + personPct(p.name), 0) / ps.length : 0;
     const pend = S.okrs.filter(o => person(o.owner)?.sub === n).reduce((t, o) => t + o.krs.filter(k => k.req && k.pct !== 100).length, 0);
     const lk = pend && e.role === 'ceo';
     return `<div class="subrow${subFilter === n ? ' on' : ''}"><button class="subhit" data-act="subfilter" data-s="${esc(n)}" aria-pressed="${subFilter === n}"><span class="grow"><b>${esc(n)}</b><span class="sub">${plural(ps.length, 'person', 'people')}${pend && !lk ? ' · ' + pend + ' awaiting approval' : ''}</span></span><span class="subbar">${bar(pct)}</span><span class="pc">${r0(pct)}%</span></button>${lk ? `<button class="pendlink" data-act="subappr" data-s="${esc(n)}" title="Review ${esc(n)} requests">${pend} awaiting approval</button>` : ''}</div>`; }).join('')}</div></section>` : '';
@@ -558,7 +560,7 @@ function reqForm(e, r) {
     <div class="row"><label class="f grow" style="flex-basis:220px">Job title<input type="text" id="ro-title" value="${esc(d.title || '')}" placeholder="e.g. Support Engineer" maxlength="100"></label>
       <label class="f">Subsidiary<select id="ro-sub">${subs().map(x => `<option${d.sub === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select></label>
       <label class="f">Team<input type="text" id="ro-team" value="${esc(d.team || '')}" placeholder="Team" style="width:150px" maxlength="60"></label>
-      ${mine ? `<label class="f">Hiring manager<select id="ro-hm">${S.people.filter(p => p.role === 'manager' || p.role === 'ceo').map(p => `<option${d.hm === p.name ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>` : ''}</div>
+      ${mine ? `<label class="f">Hiring manager<select id="ro-hm">${staff().filter(p => p.role === 'manager' || p.role === 'ceo').map(p => `<option${d.hm === p.name ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>` : ''}</div>
     <div class="row"><label class="f">Reason for hire<select id="ro-kind">${RKIND.map(x => `<option${d.kind === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select></label>
       <label class="f grow" style="flex-basis:160px">Replacing<input type="text" id="ro-rep" value="${esc(d.replacing || '')}" placeholder="Blank for new headcount" maxlength="80"></label>
       <label class="f">Contract<select id="ro-et">${S.cfg.etypes.map(x => `<option${d.etype === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select></label>
@@ -669,7 +671,7 @@ function viewHire(e) {
     ${closeR === r.id && can ? `<form class="ci-form" data-submit="saveclose" style="flex-direction:column;align-items:stretch;gap:8px"><input type="hidden" id="cl-id" value="${r.id}">
       <div class="row"><label class="f">Why are you closing ${left > 1 ? plural(left, 'opening', 'openings') : 'it'}?<select id="cl-why">${S.cfg.closeWhy.map(x => `<option>${esc(x)}</option>`).join('')}</select></label>
         <button class="btn" type="submit">Close without hiring</button><button type="button" class="btn quiet" data-act="cancelclose">Cancel</button></div></form>` : ''}
-    ${fillR === r.id && can ? (() => { const movers = S.people.filter(p => p.role !== 'hr' && p.role !== 'ceo').map(p => p.name).sort();
+    ${fillR === r.id && can ? (() => { const movers = staff().filter(p => p.role !== 'hr' && p.role !== 'ceo').map(p => p.name).sort();
       return `<form class="ci-form" data-submit="savefill" style="flex-direction:column;align-items:stretch;gap:8px"><input type="hidden" id="fl-id" value="${r.id}">
       <p class="sub" style="margin:0">Record who is taking the seat. Someone from outside is added to the directory and starts onboarding; an internal move updates their record to this team.</p>
       <div class="row"><label class="f">Coming from<select id="fl-how"><option>Outside the company</option><option>Internal move</option></select></label>
@@ -694,7 +696,7 @@ function viewRev(e) {
   if (!c) return `${openForm}<div class="card">${empty('No review cycle is open.', isGroup(e) && !cycleForm ? '<button class="btn" data-act="opencycle">Open a cycle</button>' : '')}</div>`;
   const mine = revOf(c.id, e.name), days = revDue(c);
   const inLine = p => isGroup(e) || reportsTo(p, e);
-  const allMine = [...lbScope(e)].map(n => person(n)).filter(p => p && !isGroup(p) && p.name !== e.name && inLine(p));
+  const allMine = [...lbScope(e)].map(n => person(n)).filter(p => p && !p.left && !isGroup(p) && p.name !== e.name && inLine(p));
   const team = allMine.map(p => ({p, r: revOf(c.id, p.name)})).filter(x => (!f.team || x.p.team === f.team) && (!f.v || revStage(x.r) === f.v) && (!q || x.p.name.toLowerCase().includes(q)))
     .sort((a, b) => a.p.name.localeCompare(b.p.name));
   const doneN = allMine.filter(p => revDone(revOf(c.id, p.name))).length;
@@ -738,7 +740,7 @@ function viewAppraise(e) {
   const from = apFrom || (dflt ? dflt.from : `${yr}-01-01`), to = apTo || (dflt ? dflt.to : today());
   const exact = S.cycles.find(c => c.from === from && c.to === to) || null;
   const f = ff.appr2, q = f.q.trim().toLowerCase();
-  const inScope = [...lbScope(e)].filter(n => { const p = person(n); return p && !isGroup(p) && n !== e.name && (isGroup(e) || reportsTo(p, e)); }).sort();
+  const inScope = [...lbScope(e)].filter(n => { const p = person(n); return p && !p.left && !isGroup(p) && n !== e.name && (isGroup(e) || reportsTo(p, e)); }).sort();
   const names = inScope.filter(n => (!f.team || person(n)?.team === f.team) && (!q || n.toLowerCase().includes(q) || (person(n)?.title || '').toLowerCase().includes(q)));
   const rows = names.map(n => appraise(n, from, to));
   const quick = [...cycs.slice(0, 3).map(c => [c.name, c.from, c.to]),
@@ -783,7 +785,7 @@ function viewAppraise(e) {
 
 function viewPerf(e) {
   const f = ff.perf, q = f.q.trim().toLowerCase();
-  const all = [...lbScope(e)].filter(n => n !== e.name && (isGroup(e) || reportsTo(person(n), e))).map(n => risk(n)).filter(Boolean);
+  const all = [...lbScope(e)].filter(n => n !== e.name && !person(n)?.left && (isGroup(e) || reportsTo(person(n), e))).map(n => risk(n)).filter(Boolean);
   const counts = {off: all.filter(r => r.band === 'off').length, risk: all.filter(r => r.band === 'risk').length, watch: all.filter(r => r.band === 'watch').length, ok: all.filter(r => r.band === 'ok').length};
   const noOkrs = all.filter(r => r.noOkrs), staleN = all.filter(r => r.stale).length;
   const top = [...all].sort((a, b) => b.ix - a.ix).slice(0, 5).map(r => r.n);
@@ -816,7 +818,7 @@ function viewPerf(e) {
 function viewWelf(e) {
   const f = ff.welf, q = f.q.trim().toLowerCase(), mine = welfareOf(e.name, wk), sv = surveyFor(wk), own = !!sv && !sv.closed;
   const team = isGroup(e) || e.role === 'manager';
-  const names = team ? [...lbScope(e)].filter(n => { const p = person(n); return p && !isGroup(p) && n !== e.name && (isGroup(e) || reportsTo(p, e)) && (!f.team || p.team === f.team) && (!q || n.toLowerCase().includes(q)); }).sort() : [];
+  const names = team ? [...lbScope(e)].filter(n => { const p = person(n); return p && !p.left && !isGroup(p) && n !== e.name && (isGroup(e) || reportsTo(p, e)) && (!f.team || p.team === f.team) && (!q || n.toLowerCase().includes(q)); }).sort() : [];
   const rows = names.map(n => ({n, p: person(n), w: welfareOf(n, wk), flag: welfareFlag(n)}));
   const need = rows.filter(r => r.flag).length;
   const avg = rows.filter(r => r.w).length ? rows.filter(r => r.w).reduce((t, r) => t + r.w.workload, 0) / rows.filter(r => r.w).length : null;
@@ -944,6 +946,7 @@ function viewDossier(e) {
       <div class="row"><button class="btn sm" type="submit">Save</button><button type="button" class="btn quiet sm" data-act="cancelemp">Cancel</button></div></form>` : '';
   return `${pageHead(p.name, `${p.title || ROLES[p.role]} · ${where(p)}`, '<button class="btn quiet" data-act="closedos">Back</button>')}
   <section class="card"><div class="person-h">${avatar(p.name)}<div class="grow" style="min-width:0"><div class="person-h">${chip(ROLES[p.role] || p.role, ROLE_TONE[p.role])}${r ? chip(BAND[r.band][0], BAND[r.band][1]) : ''}</div>
+    ${p.left ? `<div class="banner info" style="margin:6px 0"><span>Left on ${esc(parseIso(p.left).toLocaleDateString(undefined, {day: 'numeric', month: 'long', year: 'numeric'}))}. Their records are kept; they can't sign in.</span></div>` : ''}
     <div class="sub">${esc(p.email || 'No email on file')} · joined ${esc(p.joined ? parseIso(p.joined).toLocaleDateString(undefined, {month: 'long', year: 'numeric'}) : 'unknown')}${p.joined ? ` · ${fmt(yrs)} years` : ''}${mgrOf(p) ? ' · reports to ' + esc(mgrOf(p).name) : ''}${directs(p).length ? ' · ' + plural(directs(p).length, 'direct report', 'direct reports') : ''}</div></div></div></section>
   <div class="stats">
     ${stat('ind', 'Annual progress', r0(personPct(p.name)) + '%', `${r0(expectedPace())}% expected by now`, personPct(p.name), 'okrs')}
@@ -1118,7 +1121,8 @@ function viewSet(e) {
 
 function viewPeople(e) {
   const admin = isGroup(e);
-  const inSub = S.people.filter(p => !subFilter || !p.sub || p.sub === subFilter);
+  const inSub = staff().filter(p => !subFilter || !p.sub || p.sub === subFilter);
+  const leavers = S.people.filter(p => p.left && (!subFilter || !p.sub || p.sub === subFilter)).sort((a, b) => b.left.localeCompare(a.left));
   const teams = [...new Set(inSub.map(p => p.team).filter(Boolean))].sort();
   if (pf.team && !teams.includes(pf.team)) pf.team = '';
   const q = pf.q.trim().toLowerCase();
@@ -1127,7 +1131,7 @@ function viewPeople(e) {
   const fopt = (v, cur, l) => `<option value="${esc(v)}"${cur === v ? ' selected' : ''}>${esc(l)}</option>`;
   const roleOpts = sel => (e.role === 'ceo' ? ['member', 'manager', 'hr', 'ceo'] : ['member', 'manager', 'hr']).map(r => `<option value="${r}"${sel === r ? ' selected' : ''}>${ROLES[r]}</option>`).join('');
   const subOpts = sel => `<option value="">Group-level</option>` + subs().map(x => `<option${sel === x ? ' selected' : ''}>${esc(x)}</option>`).join('');
-  const roots = S.people.filter(p => !p.mgr || !S.people.some(x => x.id === p.mgr));
+  const roots = staff().filter(p => !p.mgr || !staff().some(x => x.id === p.mgr));
   const tabs = `<div class="seg" role="tablist" aria-label="Directory view">${[['table', 'Table'], ['org', 'Org chart']].map(([v, l]) =>
     `<button role="tab" aria-selected="${dirView === v}" data-act="dirview" data-v="${v}">${l}</button>`).join('')}</div>`;
   const linkCard = linkOut ? `<div class="card"><div class="sec-h"><h2 style="font-size:16px">${esc(linkOut.msg)}</h2><button class="btn quiet sm" data-act="clearlink">Dismiss</button></div>
@@ -1148,7 +1152,7 @@ function viewPeople(e) {
     <select id="pe-sub" aria-label="Subsidiary">${subOpts('')}</select>
     <select id="pe-role" aria-label="Role">${roleOpts('member')}</select>
     <input type="text" id="pe-team" placeholder="Team" aria-label="Team" style="width:140px" maxlength="60">
-    <select id="pe-mgr" aria-label="Reports to"><option value="">Reports to…</option>${S.people.slice().sort((a, b) => a.name.localeCompare(b.name)).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select>
+    <select id="pe-mgr" aria-label="Reports to"><option value="">Reports to…</option>${staff().sort((a, b) => a.name.localeCompare(b.name)).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select>
     <button class="btn" type="submit">Add</button></div><p class="sub" style="margin:0">They sign in with the email. After adding them, use Invite to get a link for them.</p></form>
   <div class="card"><div class="row" style="align-items:flex-end;margin-bottom:12px">
     <label class="f grow" style="flex-basis:220px">Search<input type="search" id="pf-q" data-pf="q" value="${esc(pf.q)}" placeholder="Search by name, email or job title"></label>
@@ -1156,18 +1160,25 @@ function viewPeople(e) {
     <label class="f">Team<select id="pf-team" data-pf="team">${fopt('', pf.team, 'All teams')}${teams.map(x => fopt(x, pf.team, x)).join('')}</select></label>
     <label class="f">Role<select id="pf-role" data-pf="role">${fopt('', pf.role, 'All roles')}${['ceo', 'hr', 'manager', 'member'].map(r => fopt(r, pf.role, ROLES[r])).join('')}</select></label>
     ${filtered ? '<button class="btn quiet sm" data-act="clearpf">Clear filters</button>' : ''}</div>
-    <p class="sub" style="margin:0 0 8px">Showing ${list.length} of ${S.people.length} ${S.people.length === 1 ? 'person' : 'people'}</p>
+    <p class="sub" style="margin:0 0 8px">Showing ${list.length} of ${staff().length} ${staff().length === 1 ? 'person' : 'people'}${leavers.length ? ` · ${leavers.length} left, listed below` : ''}</p>
     <div class="tblwrap"><table><thead><tr><th>Name</th><th>Email</th><th>Subsidiary</th><th>Role</th><th>Team</th><th>Reports to</th><th>Sign-in</th><th></th></tr></thead><tbody>
   ${list.length ? list.map(p => admin && (e.role === 'ceo' || p.role !== 'ceo') ? `<tr><td><div class="person-h">${avatar(p.name, true)}<div><b>${dosLink(e, p)}</b>${p.title ? `<div class="sub">${esc(p.title)}</div>` : ''}</div></div></td>
     <td><input type="email" id="pr-e-${p.id}" value="${esc(p.email || '')}" aria-label="Email" style="width:230px" maxlength="200"></td>
     <td><select id="pr-s-${p.id}" aria-label="Subsidiary">${subOpts(p.sub)}</select></td>
     <td><select id="pr-r-${p.id}" aria-label="Role"${p.id === ST.realId ? ' disabled title="You can\'t change your own role"' : ''}>${roleOpts(p.role)}</select></td>
     <td><input type="text" id="pr-t-${p.id}" value="${esc(p.team || '')}" aria-label="Team" style="width:130px" maxlength="60"></td>
-    <td><select id="pr-m-${p.id}" aria-label="Reports to"><option value="">Nobody</option>${S.people.filter(x => x.id !== p.id && !reportsTo(x, p)).sort((a, b) => a.name.localeCompare(b.name)).map(x => `<option value="${x.id}"${p.mgr === x.id ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select></td>
+    <td><select id="pr-m-${p.id}" aria-label="Reports to"><option value="">Nobody</option>${staff().filter(x => x.id !== p.id && !reportsTo(x, p)).sort((a, b) => a.name.localeCompare(b.name)).map(x => `<option value="${x.id}"${p.mgr === x.id ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select></td>
     <td>${p.sample ? chip('Sample') : p.account ? `<button class="btn quiet sm" data-act="mklink" data-id="${p.id}" title="${ST.mail?.configured ? 'Email them a password reset link' : 'Make a password reset link'}">Reset link</button>` : `<button class="btn ghost sm" data-act="mklink" data-id="${p.id}" title="${ST.mail?.configured ? 'Email them an invite' : 'Make an invite link'}"${p.email ? '' : ' disabled'}>${ST.mail?.configured ? 'Send invite' : 'Invite'}</button>`}</td>
-    <td><div class="row"><button class="btn sm" data-act="saveperson" data-id="${p.id}">Save</button>${p.id === ST.realId ? '' : confirmDel === p.id ? `<button class="btn bad sm" data-act="delperson" data-id="${p.id}">Confirm</button><button class="btn quiet sm" data-act="cancel">Cancel</button>` : `<button class="btn quiet sm" data-act="askdel" data-id="${p.id}">Remove</button>`}</div></td></tr>`
+    <td><div class="row"><button class="btn sm" data-act="saveperson" data-id="${p.id}">Save</button>${p.id === ST.realId ? '' : confirmDel === p.id ? `<button class="btn bad sm" data-act="delperson" data-id="${p.id}">Confirm</button><button class="btn quiet sm" data-act="cancel">Cancel</button>`
+      : confirmLeft === p.id ? `<span class="sub">Signed out at once; records kept.</span><button class="btn bad sm" data-act="markleft" data-id="${p.id}">Mark as left</button><button class="btn quiet sm" data-act="cancel">Cancel</button>`
+      : `${p.sample ? '' : `<button class="btn quiet sm" data-act="askleft" data-id="${p.id}" title="Switch them off and keep their records">Left</button>`}<button class="btn quiet sm" data-act="askdel" data-id="${p.id}" title="Take them out of the Directory for good">Remove</button>`}</div></td></tr>`
     : `<tr><td><div class="person-h">${avatar(p.name, true)}<div><b>${dosLink(e, p)}</b>${p.title ? `<div class="sub">${esc(p.title)}</div>` : ''}</div></div></td><td>${esc(p.email || '—')}</td><td>${p.sub ? chip(p.sub, subTone(p.sub)) : chip('Group-level')}</td><td>${chip(ROLES[p.role] || p.role, ROLE_TONE[p.role])}</td><td>${esc(p.team || '—')}</td><td>${esc(mgrOf(p)?.name || '—')}</td><td>${p.account ? chip('Active', 'good') : chip('Not yet')}</td><td></td></tr>`).join('')
-    : `<tr><td colspan="8" class="empty">${filtered ? 'No one matches these filters.' : 'No people yet.'}</td></tr>`}</tbody></table></div></div>`;
+    : `<tr><td colspan="8" class="empty">${filtered ? 'No one matches these filters.' : 'No people yet.'}</td></tr>`}</tbody></table></div></div>
+  ${leavers.length ? `<div class="card"><div class="sec-h"><h2>Left</h2><span class="sub">${plural(leavers.length, 'person', 'people')}. Switched off: they can't sign in and get no email. Their goals, reviews, leave and documents are kept.</span></div>
+    <div class="tblwrap"><table><thead><tr><th>Name</th><th>Role</th><th>Team</th><th>Left on</th><th></th></tr></thead><tbody>
+    ${leavers.map(p => `<tr><td><div class="person-h">${avatar(p.name, true)}<div><b>${dosLink(e, p)}</b>${p.title ? `<div class="sub">${esc(p.title)}</div>` : ''}</div></div></td>
+      <td>${chip(ROLES[p.role] || p.role)}</td><td>${esc(p.team || '—')}</td><td>${esc(parseIso(p.left).toLocaleDateString(undefined, {day: 'numeric', month: 'short', year: 'numeric'}))}</td>
+      <td>${admin && (e.role === 'ceo' || p.role !== 'ceo') ? `<button class="btn ghost sm" data-act="unleft" data-id="${p.id}">Switch back on</button>` : ''}</td></tr>`).join('')}</tbody></table></div></div>` : ''}`;
 }
 
 // ---------- sign-in screens ----------
@@ -1284,8 +1295,11 @@ root.addEventListener('click', ev => {
   else if (a === 'wk') { welfEdit = false; const n = +b.dataset.n; if (n === 0) wk = curWeek(); else { const d = parseIso(wk); d.setDate(d.getDate() + 7 * n); const nw = iso(d); wk = nw > curWeek() ? curWeek() : nw; } }
   else if (a === 'newokr') showForm = !showForm;
   else if (a === 'krdone') act('kr.set', {id: b.dataset.o, i, done: b.dataset.v === '1'});
-  else if (a === 'askdel') confirmDel = id;
-  else if (a === 'cancel') confirmDel = null;
+  else if (a === 'askdel') { confirmDel = id; confirmLeft = null; }
+  else if (a === 'askleft') { confirmLeft = id; confirmDel = null; }
+  else if (a === 'cancel') { confirmDel = null; confirmLeft = null; }
+  else if (a === 'markleft') { confirmLeft = null; act('person.leave', {id}); }
+  else if (a === 'unleft') act('person.return', {id});
   else if (a === 'addkr') { if (draft.krs.length < 20) { draft.krs.push(''); draft.ms.push(null); draft.kt.push('binary'); draft.tg.push(''); draft.un.push(''); } }
   else if (a === 'rmkr') { if (draft.krs.length > 2) { draft.krs.splice(i, 1); draft.ms.splice(i, 1); draft.kt.splice(i, 1); draft.tg.splice(i, 1); draft.un.splice(i, 1); } }
   else if (a === 'delokr') { confirmDel = null; act('okr.delete', {id}); }
