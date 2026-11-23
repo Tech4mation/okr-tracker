@@ -281,7 +281,8 @@ export function createActions(M, hooks) {
       const head = rows[0].map(h => h.trim().toLowerCase());
       const col = (...names) => { for (const n of names) { const i = head.indexOf(n); if (i >= 0) return i; } return -1; };
       const ci = {name: col('name', 'full name'), email: col('email', 'email address', 'work email'), sub: col('subsidiary', 'company'),
-        role: col('role'), team: col('team', 'department'), title: col('job title', 'title'), mgr: col('reports to', 'manager', 'line manager')};
+        role: col('role'), team: col('team', 'department'), title: col('job title', 'title'), mgr: col('reports to', 'manager', 'line manager'),
+        mgrEmail: col('line manager email', 'manager email', 'reports to email', 'line manager\'s email', 'manager\'s email')};
       if (ci.name < 0) return {added: 0, skipped: [], error: 'No "Name" column found. The header needs at least Name.'};
       const roleOf = v => { const x = String(v || '').trim().toLowerCase(); return x === 'ceo' ? 'ceo' : x === 'hr' ? 'hr' : x === 'manager' ? 'manager' : 'member'; };
       const added = [], skipped = [];
@@ -301,13 +302,23 @@ export function createActions(M, hooks) {
         const r2 = roleOf(get('role'));
         if (r2 === 'ceo' && e.role !== 'ceo') return skipped.push(`${row}: only the CEO can add another CEO`);
         added.push({id: uuid(), name, email: em, sub, role: r2, team: get('team').slice(0, 60), title: get('title').slice(0, 80),
-          mgrName: get('mgr'), mgr: null, joined: today(), jd: [], contract: 'Permanent', notice: '1 month', uid: null});
+          mgrName: get('mgr'), mgrEmail: get('mgrEmail').toLowerCase(), row, mgr: null, joined: today(), jd: [], contract: 'Permanent', notice: '1 month', uid: null});
       });
       added.forEach(p => S.people.push(p));
-      // Resolve reporting lines last, so a manager listed in the same file still links up.
-      added.forEach(p => { const m = p.mgrName && S.people.find(x => x.id !== p.id && x.name.toLowerCase() === p.mgrName.toLowerCase());
-        p.mgr = m ? m.id : null; delete p.mgrName; hooks.accounts.link(p); });
-      return {added: added.length, skipped, error: ''};
+      // Reporting lines are resolved last, so a manager listed further down the file still links up (TPD-1892). A
+      // manager's email wins over their name. Someone whose manager can't be found, or who would close a loop
+      // (for example two people listed as each other's manager), is still added, with the manager left for HR to set.
+      const managers = [];
+      const above = (from, p) => { const seen = new Set(); for (let x = from; x && !seen.has(x.id); x = S.people.find(q => q.id === x.mgr)) { if (x === p) return true; seen.add(x.id); } return false; };
+      added.forEach(p => {
+        const ref = p.mgrEmail || p.mgrName;
+        const m = !ref ? null : p.mgrEmail ? S.people.find(x => (x.email || '').toLowerCase() === p.mgrEmail) : S.people.find(x => x.id !== p.id && x.name.toLowerCase() === p.mgrName.toLowerCase());
+        if (ref && !m) managers.push(`${p.row}: ${p.name}'s manager "${ref}" was not found. Set it by hand.`);
+        else if (m && above(m, p)) managers.push(`${p.row}: ${p.name} can't report to ${m === p ? 'themselves' : m.name}, as that would make a loop. Set it by hand.`);
+        else p.mgr = m ? m.id : null;
+        delete p.mgrName; delete p.mgrEmail; delete p.row; hooks.accounts.link(p);
+      });
+      return {added: added.length, skipped, managers, error: ''};
     },
     'hrnote.save'(e, a) {
       group(e); const p = personById(a.id);
