@@ -158,7 +158,11 @@ function buildCsv(kind, e) {
 function exportCsv(kind, e) {
   const text = buildCsv(kind, e);
   if (!text) return toast('Nothing to export.');
-  const name = 'okr-tracker-' + kind + '-' + today() + '.csv';
+  downloadCsv('okr-tracker-' + kind + '-' + today() + '.csv', text);
+}
+// TPD-1892: the columns the people import reads, ready to fill in.
+const IMPORT_COLS = ['Name', 'Email', 'Role', 'Subsidiary', 'Team', 'Job title', 'Line manager email'];
+function downloadCsv(name, text) {
   try {
     const url = URL.createObjectURL(new Blob(['﻿' + text], {type: 'text/csv;charset=utf-8;'}));
     const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
@@ -1131,13 +1135,14 @@ function viewPeople(e) {
     <div class="linkbox"><input type="text" id="link-url" value="${esc(linkOut.url)}" readonly aria-label="Link"><button class="btn sm" data-act="copylink">Copy</button></div></div>` : '';
   if (dirView === 'org') return `${pageHead('Directory', 'Who reports to whom. Approvals follow these lines.', expBtn('people'))}${tabs}
     <div class="card"><ul class="org">${roots.map(p => orgNode(p, e, 0)).join('')}</ul></div>`;
-  return `${pageHead('Directory', 'Add people and set their subsidiary, role, team and who they report to. Approvals follow the reporting line.', `<div class="row"><button class="btn quiet" data-act="pickcsv">Import CSV</button>${expBtn('people')}</div>`)}${tabs}
+  return `${pageHead('Directory', 'Add people and set their subsidiary, role, team and who they report to. Approvals follow the reporting line.', `<div class="row"><button class="btn quiet" data-act="csvtemplate" title="A spreadsheet with the columns the import reads">Download template</button><button class="btn quiet" data-act="pickcsv">Import CSV</button>${expBtn('people')}</div>`)}${tabs}
   <input type="file" id="csv-in" accept=".csv,text/csv" class="sr" aria-label="Choose a CSV file of people">
   ${linkCard}
   ${imp ? `<div class="card"><div class="sec-h"><h2 style="font-size:16px">Import result</h2><button class="btn quiet sm" data-act="clearimp">Dismiss</button></div>
     ${imp.error ? `<p class="sub" style="margin:0">${esc(imp.error)} Nobody was added.</p>` : `<p class="sub" style="margin:0">${plural(imp.added, 'person', 'people')} added${imp.skipped.length ? ', ' + imp.skipped.length + ' skipped' : ''}.</p>`}
     ${imp.skipped.length ? `<ul class="flags">${imp.skipped.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
-    <p class="sub" style="margin:0">Columns read: Name (required), Email, Subsidiary, Role, Team, Job title, Reports to.</p></div>` : ''}
+    ${imp.managers?.length ? `<p class="sub" style="margin:0">Added, but without a line manager:</p><ul class="flags">${imp.managers.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+    <p class="sub" style="margin:0">Columns read: Name (required), Email, Role (member, manager, hr or ceo), Subsidiary, Team, Job title, and Line manager email (or Reports to, by name).</p></div>` : ''}
   <form class="card" data-submit="addperson"><h3>Add a person</h3><div class="row"><input type="text" id="pe-name" placeholder="Full name" aria-label="Name" class="grow" maxlength="80"><input type="email" id="pe-email" placeholder="Work email" aria-label="Email" class="grow" maxlength="200">
     <input type="text" id="pe-title" placeholder="Job title" aria-label="Job title" style="width:160px" maxlength="80">
     <select id="pe-sub" aria-label="Subsidiary">${subOpts('')}</select>
@@ -1311,6 +1316,7 @@ root.addEventListener('click', ev => {
   else if (a === 'reloadmail') { loadMail(); return; }
   else if (a === 'testmail') { api('/api/mail/test', {method: 'POST', json: {}}).then(r => { toast(r.msg); loadMail(); }).catch(err => { toast(err.message); loadMail(); }); return; }
   else if (a === 'export') { exportCsv(b.dataset.x, e); return; }
+  else if (a === 'csvtemplate') { downloadCsv('okr-tracker-people-template.csv', toCsv([IMPORT_COLS])); return; }
   else if (a === 'pickcsv') { const el = $('#csv-in'); if (el) { el.value = ''; el.click(); } return; }
   else if (a === 'clearimp') imp = null;
   else if (a === 'pickdoc') { const el = $('#doc-file'); if (el) { el.value = ''; el.dataset.doc = id; el.click(); } return; }

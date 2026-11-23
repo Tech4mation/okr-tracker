@@ -799,3 +799,20 @@ test('organizations from before get colours: the first three keep theirs, others
   assert.deepEqual(o4.S.cfg.subTone, {Connect: 'tea', NativeTalk: 'sky', Alpha: 'vio'});
   o4.close();
 });
+
+// ---------- the import sets reporting lines by email (TPD-1892) ----------
+test('the import sets line managers by email, whatever the row order, and says what it could not set', async () => {
+  const text = ['Name,Email,Role,Line manager email', 'Ike Imp,ike@x.co,member,JO@x.co', 'Jo Imp,jo@x.co,manager,mo@x.co', 'Kay Imp,kay@x.co,member,nobody@x.co',
+    'Lu Imp,lu@x.co,member,max@x.co', 'Max Imp,max@x.co,member,lu@x.co', 'Ned Imp,ned@x.co,member,ned@x.co'].join('\n');
+  const out = await ok(act(hr, 'people.import', {text}));
+  assert.equal(out.added, 6); assert.deepEqual(out.skipped, []);
+  assert.equal(P('Ike Imp').mgr, P('Jo Imp').id);                       // a manager further down the file
+  assert.equal(P('Jo Imp').mgr, P('Mo Bello').id);                      // someone already in the directory
+  assert.equal(P('Kay Imp').mgr, null);
+  assert.deepEqual([P('Lu Imp').mgr, P('Max Imp').mgr], [P('Max Imp').id, null]);   // the loop is never closed
+  assert.equal(P('Ned Imp').mgr, null);
+  assert.equal(out.managers.length, 3);
+  assert.match(out.managers.find(m => m.includes('Kay Imp')), /"nobody@x\.co" was not found/);
+  assert.match(out.managers.find(m => m.includes('Max Imp')), /loop/);
+  assert.match(out.managers.find(m => m.includes('Ned Imp')), /themselves/);
+});
