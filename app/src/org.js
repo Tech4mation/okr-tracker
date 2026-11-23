@@ -259,6 +259,17 @@ export function createOrg({id, db, filesDir = '', transport = null, baseUrl = ()
     }],
   ];
 
+  // A company that signed itself up (TPD-1897): its first account, the CEO, with the password chosen at sign-up.
+  function createCeo({name, email, passHash}) {
+    return change(() => {
+      if (S.people.length) throw new Refusal('This organization already has people in it.');
+      if (registry.elsewhere(email)) throw new Refusal(ELSEWHERE);
+      const u = Number(db.prepare('INSERT INTO users (email, name, pass_hash, created_at) VALUES (?, ?, ?, ?)').run(email, name, passHash, now()).lastInsertRowid);
+      S.people.push({id: uuid(), name, email, role: 'ceo', sub: '', team: '', mgr: null, title: 'Chief Executive Officer', joined: today(), jd: [], contract: '', notice: '', uid: String(u)});
+      return u;
+    });
+  }
+
   // ---------- the CEO, for the platform page (TPD-1889) ----------
   // One still to choose a password first, otherwise the first CEO.
   const ceo = () => { const all = S.people.filter(p => p.role === 'ceo'); return all.find(p => !p.uid) || all[0] || null; };
@@ -281,7 +292,7 @@ export function createOrg({id, db, filesDir = '', transport = null, baseUrl = ()
   }
 
   return {
-    id, db, M, S, store, mailer, clients, hasCeo, setupLink, resetLink, startSession, emails, ceo, ceoLink,
+    id, db, M, S, store, mailer, clients, hasCeo, setupLink, resetLink, startSession, emails, ceo, ceoLink, createCeo,
     // Closes every open page's live-update stream, so a paused organization's pages stop at once.
     dropClients() { for (const res of clients) res.end(); clients.clear(); },
     // The account for a sign-in, if this organization has one with that email.

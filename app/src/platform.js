@@ -26,7 +26,15 @@ const MIGRATIONS = [`
   CREATE TABLE owner_sessions (token_hash TEXT PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES owners(id) ON DELETE CASCADE, expires_at INTEGER NOT NULL);
   CREATE TABLE owner_links (token_hash TEXT PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES owners(id) ON DELETE CASCADE, expires_at INTEGER NOT NULL);
   ALTER TABLE orgs ADD COLUMN last_at INTEGER;
+`,
+// Version 3 (TPD-1897): companies sign up themselves. A sign-up waits here, holding only a hash of the password,
+// until its email address is confirmed; only then is the organization created.
+`
+  CREATE TABLE signups (token_hash TEXT PRIMARY KEY, company TEXT NOT NULL, name TEXT NOT NULL, email TEXT NOT NULL COLLATE NOCASE,
+    pass_hash TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL);
+  CREATE INDEX signups_email ON signups(email);
 `];
+export const SIGNUP_HOURS = 24;
 const HOUR = 3600e3;
 export const OWNER_SESSION_HOURS = 12;
 
@@ -89,6 +97,23 @@ export function openPlatform(dataDir) {
     setStatus: (id, status) => db.prepare('UPDATE orgs SET status = ? WHERE id = ?').run(status, id),
     // When someone in the organization last used it.
     touch: (id, at = Date.now()) => db.prepare('UPDATE orgs SET last_at = ? WHERE id = ?').run(at, id),
+
+    // ---------- sign-ups waiting for their email to be confirmed ----------
+    signups: {
+      // Only the newest link for an address works.
+      add({company, name, email, passHash}) {
+        const token = newToken(), now = Date.now();
+        tx(db, () => {
+          db.prepare('DELETE FROM signups WHERE email = ?').run(email);
+          db.prepare('INSERT INTO signups (token_hash, company, name, email, pass_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+            .run(sha(token), company, name, email, passHash, now, now + SIGNUP_HOURS * HOUR);
+        });
+        return token;
+      },
+      byToken: token => token ? db.prepare('SELECT * FROM signups WHERE token_hash = ? AND expires_at >= ?').get(sha(token), Date.now()) || null : null,
+      done: email => db.prepare('DELETE FROM signups WHERE email = ?').run(email),
+      prune: () => db.prepare('DELETE FROM signups WHERE expires_at < ?').run(Date.now()),
+    },
 
     // ---------- the platform's owners: separate accounts, sessions and links ----------
     owners: {

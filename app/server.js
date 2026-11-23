@@ -98,6 +98,7 @@ const server = createApp({
   trustProxy: env.TRUST_PROXY === 'true',
   transport,
   firstOrgName: FIRST_ORG_NAME,
+  signup: env.OPEN_SIGNUP !== 'false',
 });
 server.listen(PORT, HOST, () => {
   const {orgs} = server.okr;
