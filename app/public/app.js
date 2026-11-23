@@ -24,7 +24,7 @@ const monOpts = sel => MONFULL.map((m, i) => `<option value="${i}"${sel === i ? 
 const subs = () => S.cfg.subs;
 
 // ---------- page state ----------
-let ST = null, phase = 'boot', authMsg = '', link = null, viewAs = null;
+let ST = null, phase = 'boot', authMsg = '', link = null, viewAs = null, signupOpen = false, signupSent = '';
 let pf = {q: '', team: '', role: ''};
 const FF0 = () => ({appr2: {q: '', team: ''}, hist: {q: '', team: '', v: ''}, hire: {q: '', team: ''}, rev: {q: '', team: '', v: ''}, lead: {q: '', team: ''}, perf: {q: '', team: ''}, welf: {q: '', team: ''}, okrs: {q: '', team: '', st: '', mo: ''}, appr: {q: '', team: ''}, stand: {q: '', st: ''}, review: {q: '', st: ''}, leave: {y: '', who: ''}});
 let ff = FF0();
@@ -70,7 +70,10 @@ async function refresh() {
           if (!st.previewing && viewAs && st.effId === st.realId) viewAs = null;
         }
       } catch (err) {
-        if (err.status === 401) { ST = null; phase = err.data?.needsSetup ? 'nosetup' : 'login'; }
+        if (err.status === 401) {
+          ST = null; phase = err.data?.needsSetup ? 'nosetup' : 'login';
+          if (phase === 'login') signupOpen = !!(await api('/api/signup').catch(() => ({}))).open;
+        }
         else toast(err.message);
       }
     } while (again);
@@ -1152,7 +1155,17 @@ const field = (id, label, type, extra = '') => `<label class="f">${label}<input 
 function authView() {
   const err = authMsg ? `<p class="err" role="alert">${esc(authMsg)}</p>` : '';
   if (phase === 'login') return authCard('Sign in', `<form data-submit="login">${field('li-email', 'Work email', 'email', 'autocomplete="username" required')}${field('li-pass', 'Password', 'password', 'autocomplete="current-password" required')}
-    ${err}<button class="btn" type="submit">Sign in</button><p class="sub" style="margin:0">New here, or forgot your password? Ask HR for a link.</p></form>`);
+    ${err}<button class="btn" type="submit">Sign in</button><p class="sub" style="margin:0">${signupOpen
+      ? 'Joining your company, or forgot your password? Ask your HR team for a link. Setting up your company? <a href="/signup">Create its tracker</a>.'
+      : 'New here, or forgot your password? Ask HR for a link.'}</p></form>`);
+  // TPD-1897: a company signs itself up. Nothing is created until the email address is confirmed.
+  if (phase === 'signup') return authCard('Set up your company', `<p class="sub" style="margin:0">You'll be your company's CEO on the tracker, and can add your people straight away. We'll email you a link to confirm your address first.</p>
+    <form data-submit="signup">${field('sg-company', 'Company name', 'text', 'autocomplete="organization" maxlength="80" required')}${field('sg-name', 'Your full name', 'text', 'autocomplete="name" maxlength="80" required')}
+    ${field('sg-email', 'Work email', 'email', 'autocomplete="email" maxlength="200" required')}${field('sg-pass', 'Password, at least 8 characters', 'password', 'autocomplete="new-password" minlength="8" required')}
+    ${err}<button class="btn" type="submit">Create our tracker</button><p class="sub" style="margin:0">Already have an account? <a href="/">Sign in</a>.</p></form>`);
+  if (phase === 'signup-sent') return authCard('Check your inbox', `<p style="margin:0">${esc(signupSent)}</p>
+    <p class="sub" style="margin:0">Nothing there after a few minutes? Check your spam folder, or <a href="/signup">try again</a>.</p>`);
+  if (phase === 'confirm') return authCard('Setting up your company', err ? `${err}<p class="sub" style="margin:0"><a href="/signup">Sign up again</a> or <a href="/">sign in</a>.</p>` : '<p class="sub">One moment…</p>');
   if (phase === 'setup') return authCard('Create the CEO account', `<p class="sub">This link sets up the first account. Whoever uses it becomes the CEO and can then add everyone else.</p>
     <form data-submit="setup">${field('su-name', 'Your full name', 'text', 'autocomplete="name" maxlength="80" required')}${field('su-email', 'Work email', 'email', 'autocomplete="username" required')}
     ${field('su-pass', 'Password, at least 8 characters', 'password', 'autocomplete="new-password" minlength="8" required')}${err}<button class="btn" type="submit">Create account</button></form>`);
@@ -1365,6 +1378,11 @@ root.addEventListener('input', ev => {
 async function authSubmit(f) {
   authMsg = '';
   try {
+    if (f === 'signup') {
+      const r = await api('/api/signup', {method: 'POST', json: {company: val('sg-company'), name: val('sg-name'), email: val('sg-email'), password: val('sg-pass')}});
+      signupSent = r.msg; phase = 'signup-sent'; history.replaceState(null, '', '/signup');
+      return render();
+    }
     if (f === 'login') await api('/api/login', {method: 'POST', json: {email: val('li-email'), password: val('li-pass')}});
     else if (f === 'setup') await api('/api/setup', {method: 'POST', json: {token: token(), name: val('su-name'), email: val('su-email'), password: val('su-pass')}});
     else {
@@ -1378,7 +1396,7 @@ async function authSubmit(f) {
 root.addEventListener('submit', ev => {
   ev.preventDefault();
   const f = ev.target.dataset.submit;
-  if (['login', 'setup', 'invite', 'reset'].includes(f)) return void authSubmit(f);
+  if (['login', 'setup', 'invite', 'reset', 'signup'].includes(f)) return void authSubmit(f);
   const e = eff(); if (!e) return;
   if (f === 'addokr') {
     const krs = draft.krs.map((t, j) => ({title: t.trim(), month: draft.ms[j] ?? curM(), type: draft.kt[j] || 'binary', target: draft.tg[j], unit: (draft.un[j] || '').trim()})).filter(x => x.title);
@@ -1441,6 +1459,13 @@ root.addEventListener('submit', ev => {
 (async function boot() {
   const path = location.pathname;
   if (path === '/setup') { phase = 'setup'; return render(); }
+  if (path === '/signup') { phase = 'signup'; return render(); }
+  // The link from the sign-up email: creates the company and signs its CEO in.
+  if (path === '/confirm') {
+    phase = 'confirm'; render();
+    try { await api('/api/signup/confirm', {method: 'POST', json: {token: token()}}); history.replaceState(null, '', '/'); phase = 'boot'; go('dash'); return void refresh(); }
+    catch (err) { authMsg = err.message; return render(); }
+  }
   if (path === '/invite' || path === '/reset') {
     phase = path.slice(1); render();
     try { link = await api('/api/link', {method: 'POST', json: {kind: phase, token: token()}}); } catch (err) { authMsg = err.message; }

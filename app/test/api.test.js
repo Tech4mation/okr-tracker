@@ -629,3 +629,72 @@ test('the platform page and its script are served', async () => {
   for (const p of ['/platform', '/platform/setup', '/platform.js']) assert.equal((await fetch(base + p)).status, 200, p);
   assert.match(await (await fetch(base + '/platform')).text(), /platform\.js/);
 });
+
+// ---------- companies sign up themselves (TPD-1897) ----------
+const confirmLink = m => tok(mailBody(m).match(/https?:\/\/\S+\/confirm\?token=\S+/)[0]);
+const eve = client();
+
+test('a company signs itself up, and exists only once its email is confirmed', async () => {
+  assert.equal((await ok(client().get('/api/signup'))).open, true);
+  await no(eve.post('/api/signup', {company: 'Echo Ltd', name: 'Eve Eke', email: 'not-an-email', password: 'password1'}));
+  await no(eve.post('/api/signup', {company: '', name: 'Eve Eke', email: 'eve@echo.co', password: 'password1'}));
+  await no(eve.post('/api/signup', {company: 'Echo Ltd', name: 'Eve Eke', email: 'eve@echo.co', password: 'short'}));
+  inbox.length = 0;
+  assert.match((await ok(eve.post('/api/signup', {company: 'Echo Ltd', name: 'Eve Eke', email: 'eve@echo.co', password: 'password1'}))).msg, /eve@echo\.co/);
+  assert.ok(!server.okr.platform.list().some(o => o.name === 'Echo Ltd'));          // nothing yet
+  await no(client().post('/api/login', {email: 'eve@echo.co', password: 'password1'}), 401);
+  const mail = inbox.find(m => m.includes('To: <eve@echo.co>'));
+  assert.match(mail, /Subject: Confirm your email to set up Echo Ltd/);
+  const t = confirmLink(mail);
+  await no(client().post('/api/signup/confirm', {token: 'made-up'}));
+  await ok(eve.post('/api/signup/confirm', {token: t}));
+  await no(client().post('/api/signup/confirm', {token: t}));                       // works once
+  const s = await ok(eve.get('/api/state'));
+  assert.deepEqual(s.S.people.map(p => [p.name, p.role]), [['Eve Eke', 'ceo']]);
+  assert.deepEqual([s.S.okrs.length, s.S.roles.length], [0, 0]);
+  assert.ok(server.okr.platform.list().some(o => o.name === 'Echo Ltd'));
+  await ok(client().post('/api/login', {email: 'eve@echo.co', password: 'password1'}));
+  // She runs her company like any CEO: her first person is in her company only.
+  await ok(act(eve, 'person.add', {name: 'Ezra Echo', email: 'ezra@echo.co', role: 'member'}));
+  assert.ok(!(await state(ceo)).people.some(p => p.name === 'Ezra Echo'));
+});
+
+test('sign-up never says whether an address is taken, and can\'t flood an inbox', async () => {
+  inbox.length = 0;
+  const r = await ok(client().post('/api/signup', {company: 'Copycat', name: 'Mo Bello', email: 'mo@x.co', password: 'password1'}));
+  assert.match(r.msg, /We've sent a link to mo@x\.co/);                          // the same answer as for a new address
+  const mail = inbox.find(m => m.includes('To: <mo@x.co>'));
+  assert.match(mail, /Subject: You already have a Team OKR Tracker account/);
+  assert.ok(!mailBody(mail).includes('/confirm?token=') && mailBody(mail).includes('Acme'));
+  assert.ok(!server.okr.platform.list().some(o => o.name === 'Copycat'));
+  // Only the newest link for an address works.
+  inbox.length = 0;
+  const fay = {name: 'Fay Fox', email: 'fay@fox.co', password: 'password1'};
+  await ok(client().post('/api/signup', {company: 'Fox One', ...fay}));
+  await ok(client().post('/api/signup', {company: 'Fox Two', ...fay}));
+  const [first] = inbox.filter(m => m.includes('To: <fay@fox.co>')).map(confirmLink);
+  await no(client().post('/api/signup/confirm', {token: first}));
+  // Three emails an hour to one inbox, then quietly no more; five sign-ups an hour from one place.
+  inbox.length = 0;
+  await ok(client().post('/api/signup', {company: 'Fox Three', ...fay}));
+  assert.equal(inbox.filter(m => m.includes('To: <fay@fox.co>')).length, 1);
+  await no(client().post('/api/signup', {company: 'Gee Co', name: 'Gus Gee', email: 'gus@gee.co', password: 'password1'}), 429);
+});
+
+test('sign-up can be switched off, and is off without email', async () => {
+  for (const opts of [{transport: createSmtpTransport({host: '127.0.0.1', port: smtp.address().port, from: 'okr@example.com'}), signup: false}, {transport: null}]) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'okr-nosignup-'));
+    const s2 = createApp({dataDir: dir, log: {error() {}}, ...opts});
+    await new Promise(r => s2.listen(0, '127.0.0.1', r));
+    const b2 = `http://127.0.0.1:${s2.address().port}`;
+    assert.equal((await (await fetch(b2 + '/api/signup')).json()).open, false);
+    const res = await fetch(b2 + '/api/signup', {method: 'POST', headers: {'X-OKR': '1', 'Content-Type': 'application/json'},
+      body: JSON.stringify({company: 'Nope Ltd', name: 'No Body', email: 'no@nope.co', password: 'password1'})});
+    assert.equal(res.status, 403);
+    // A fresh install that nobody can sign up to explains how to get the setup link instead.
+    assert.equal((await (await fetch(b2 + '/api/state')).json()).needsSetup, true);
+    s2.closeAllConnections(); s2.close(); s2.okr.close();
+    fs.rmSync(dir, {recursive: true, force: true});
+  }
+  for (const p of ['/signup', '/confirm']) assert.equal((await fetch(base + p)).status, 200, p);
+});

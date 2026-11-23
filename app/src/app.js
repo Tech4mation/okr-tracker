@@ -13,12 +13,13 @@ import {openDb} from './db.js';
 import {openPlatform, adoptLegacy, splitToken} from './platform.js';
 import {createOrg} from './org.js';
 import {createAdmin} from './admin.js';
+import {createSignup} from './signup.js';
 import {Refusal} from './actions.js';
 import {HttpError, fail, HANDLED, SECURITY, MAX_JSON, MAX_FILE, send, readRaw, parseJson} from './http.js';
 
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const STATIC = {'/app.js': 'text/javascript', '/app.css': 'text/css', '/model.js': 'text/javascript', '/favicon.svg': 'image/svg+xml', '/platform.js': 'text/javascript'};
-const PAGE_PATHS = new Set(['/', '/index.html', '/setup', '/reset', '/invite']);
+const PAGE_PATHS = new Set(['/', '/index.html', '/setup', '/reset', '/invite', '/signup', '/confirm']);
 // The platform owners' page (admin.js). Opening it does nothing without an owner's own sign-in.
 const PLATFORM_PAGES = new Set(['/platform', '/platform/setup']);
 const PAUSED = 'Team OKR Tracker is paused for your organization. Nothing in it has been deleted. Ask your CEO to get in touch with us.';
@@ -31,8 +32,9 @@ const LINKS = {
 };
 
 // dataDir holds platform.db and one folder per organization (see platform.js). firstOrgName names the organization
-// made from a single-company data folder from before, or the empty one a fresh install starts with.
-export function createApp({dataDir, publicUrl = '', cookieSecure = false, trustProxy = false, transport = null, firstOrgName = '', log = console}) {
+// made from a single-company data folder from before, or the empty one a fresh install starts with. signup lets
+// companies sign themselves up (it also needs email to be set up).
+export function createApp({dataDir, publicUrl = '', cookieSecure = false, trustProxy = false, transport = null, firstOrgName = '', signup: signupOn = true, log = console}) {
   const platform = openPlatform(dataDir);
   adoptLegacy(platform, firstOrgName);
   if (!platform.list().length) platform.create(firstOrgName || 'My organization');
@@ -45,8 +47,8 @@ export function createApp({dataDir, publicUrl = '', cookieSecure = false, trustP
 
   // ---------- the organizations, each loaded once and kept ----------
   const orgs = new Map();
-  // True until some organization has its CEO: the page then explains how to get a setup link.
-  const needsSetup = () => ![...orgs.values()].some(o => o.hasCeo());
+  // True until some organization has its CEO, while nobody can sign up: the page then explains how to get a setup link.
+  const needsSetup = () => !signup.open() && ![...orgs.values()].some(o => o.hasCeo());
   const lastTouch = new Map();
   function load(row) {
     const id = row.id;
@@ -77,10 +79,11 @@ export function createApp({dataDir, publicUrl = '', cookieSecure = false, trustP
   // Every organization is loaded at start, so each one's daily email goes out even if nobody has signed in yet.
   platform.list().forEach(load);
   const admin = createAdmin({platform, org, addOrg: name => load(platform.create(name)), transport, cookieSecure, loginLimit, linkLimit, ip});
+  const signup = createSignup({platform, addOrg: name => load(platform.create(name)), transport, enabled: signupOn, ip, linkLimit, log});
   const fromCookie = req => { const {org: id, token} = splitToken(A.readCookie(req), platform.legacyOrg()); return {o: org(id), token}; };
 
   const timers = [
-    setInterval(() => { orgs.forEach(o => o.prune()); platform.owners.prune(); }, 6 * 3600e3),
+    setInterval(() => { orgs.forEach(o => o.prune()); platform.owners.prune(); platform.signups.prune(); }, 6 * 3600e3),
     setInterval(() => orgs.forEach(o => open(o) && o.ping()), 25e3),
     // A paused organization sends no email.
     setInterval(() => orgs.forEach(o => open(o) && o.tick()), 60e3),
@@ -128,6 +131,9 @@ export function createApp({dataDir, publicUrl = '', cookieSecure = false, trustP
       const body = isFile ? {} : parseJson(raw);
 
       if (pathname.startsWith('/api/platform/')) return send(req, res, 200, await admin.handle(req, res, {pathname, body, base: baseUrl(req)}));
+      // Whether the sign-in page offers "create your company's tracker".
+      if (req.method === 'GET' && pathname === '/api/signup') return send(req, res, 200, {open: signup.open()});
+      if (pathname.startsWith('/api/signup')) return send(req, res, 200, await signup.handle(req, res, {pathname, body, base: baseUrl(req)}));
       if (req.method === 'POST' && pathname === '/api/login') { await login(req, res, body); return send(req, res, 200, {ok: true}); }
       if (req.method === 'POST' && pathname === '/api/logout') {
         const {o, token} = fromCookie(req);

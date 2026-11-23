@@ -60,6 +60,8 @@ Then set up nginx from `deploy/nginx.conf`. The live-updates stream (`/api/event
 
 ## Organizations
 
+**Sign-up:** any company can start its own tracker from the sign-in page ("Create its tracker"). The person enters the company name, their name, work email and a password; we email a link to confirm the address, valid 24 hours. Nothing is created until they open it. Then the company exists, empty, with them as its CEO, and they are signed in. The form never says whether an address is already in use: that address's owner gets an email saying they already have an account instead. Sign-ups are limited to 5 an hour from one address and 3 emails an hour to one inbox. Sign-up needs email to be set up; `OPEN_SIGNUP=false` turns it off.
+
 **The platform page** at `https://okr.yourcompany.com/platform` is for whoever runs the platform, not for the companies on it. Companies sign up themselves; nobody here creates or approves them. From it you:
 - see every organization: its CEO, number of people, when it was created and when someone last used it;
 - send a locked-out CEO a password reset link (or a fresh invite, if they never chose a password);
@@ -89,6 +91,7 @@ Adding an email address that another organization already uses is refused, wheth
 | `PORT` | `3000` | Port to listen on. |
 | `HOST` | `127.0.0.1` | Address to listen on. Docker sets `0.0.0.0`. |
 | `DATA_DIR` | `./data` | Where the data lives: `platform.db` (the organizations, and which one each email belongs to) and one folder per organization, `orgs/<id>/`, holding its `okr.db`, its attached documents (`files/`) and its backups (`backups/`). |
+| `OPEN_SIGNUP` | `true` | Lets companies sign themselves up from the sign-in page. Set `false` to turn it off, for example on a copy one company hosts for itself. Sign-up is also off while email is not set up. |
 | `FIRST_ORG_NAME` | `My organization` | Name of the organization a fresh install starts with, or that an upgraded single-company install becomes. |
 | `TRUST_PROXY` | `false` | Set `true` behind nginx so sign-in rate limits see real client addresses. |
 | `TZ` | server's | Timezone for weeks (Monday to Sunday), due months and the daily email. |
@@ -149,6 +152,7 @@ npm test        # API tests against the PRD rules
 | Path | What it is |
 |---|---|
 | `server.js` | Entry point, and the orgs, org-create, setup-link, reset-link, platform-owner and backup commands |
+| `src/signup.js` | Companies signing themselves up, with email confirmation |
 | `src/admin.js` | The platform page's API: owner sign-in, new organizations, CEO links, pausing |
 | `src/platform.js` | The organizations, which one each email belongs to, and the upgrade from the single-company layout |
 | `src/org.js` | One organization: its records, actions, accounts, links, files, email and live updates |
