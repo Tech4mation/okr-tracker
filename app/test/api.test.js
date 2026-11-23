@@ -753,3 +753,15 @@ test('sample data loads only into an empty organization, can\'t sign in, and cle
   await no(act(hal, 'sample.clear'));
   assert.match((await no(act(hal, 'sample.load'))).error, /empty/);
 });
+
+test('subsidiaries in use stay in the list when older settings never saved one', () => {
+  const d3 = openDb(':memory:');
+  const put = (col, x) => d3.prepare('INSERT INTO docs (col, id, data) VALUES (?, ?, ?)').run(col, x.id, JSON.stringify(x));
+  put('people', {id: 'p1', name: 'Nia North', email: '', role: 'member', sub: 'North', team: '', mgr: null, uid: null});
+  put('okrs', {id: 'o1', objective: 'Grow', owner: 'Company', sub: 'South', year: curY(), updates: [], krs: []});
+  put('cfg', {id: 'cfg', riskAt: 80});
+  const o3 = createOrg({id: 'old3', name: 'Older Co', db: d3, log: {error() {}}});
+  assert.deepEqual(o3.S.cfg.subs, ['North', 'South']);
+  assert.deepEqual(JSON.parse(d3.prepare("SELECT data FROM docs WHERE col = 'cfg'").get().data).subs, ['North', 'South']);
+  o3.close();
+});

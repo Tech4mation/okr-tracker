@@ -89,6 +89,9 @@ export function createOrg({id, name = '', db, filesDir = '', transport = null, b
       S.cfg.company = String(name || '').trim().slice(0, 80) || 'My company';
     }
     if (S.cfg.mail.fromName === 'Team OKR Tracker') S.cfg.mail.fromName = '';
+    // A subsidiary that people, goals, roles or checklists use always stays in the list. Organizations from before
+    // TPD-1890 could rely on the old built-in list of three, which new organizations no longer get.
+    [...S.people, ...S.okrs, ...S.roles, ...S.tmpl, ...S.onb].forEach(x => { if (x.sub && !S.cfg.subs.includes(x.sub)) S.cfg.subs.push(x.sub); });
   });
   let company = S.cfg.company;
   // Every address this organization holds, for the platform's email -> organization list.
