@@ -12,6 +12,7 @@ import {createApp} from '../src/app.js';
 import {createOrg} from '../src/org.js';
 import {createSmtpTransport} from '../src/smtp.js';
 import {hashPassword, createSession} from '../src/auth.js';
+import {SAMPLE_NAMES} from '../src/sample.js';
 import {curWeek, curM, curY, today} from '../public/model.js';
 
 // A stand-in mail server that accepts everything and keeps what it was sent.
@@ -740,6 +741,10 @@ test('sample data loads only into an empty organization, can\'t sign in, and cle
   assert.equal(s.people.filter(p => p.sample).length, 7);
   assert.ok(s.okrs.length === 7 && s.stand.length > 5 && s.leave.length === 2);
   assert.equal(H.mailer.report().rows.length, 0);                                // loading sends no email
+  // The daily email and the email log leave the made-up people out.
+  H.mailer.runDigest(new Date(2026, 10, 4, 10));
+  assert.ok(!H.mailer.report().rows.some(r => SAMPLE_NAMES.includes(r.name)));
+  assert.deepEqual(H.mailer.report().noEmail, []);
   await no(hal.post(`/api/people/${H.S.people.find(p => p.name === 'Kemi Adeyemi').id}/link`));
   // What she adds herself stays when the sample goes, even if it hung off a sample manager.
   await ok(act(hal, 'person.add', {name: 'Rita Real', email: 'rita@hotel.co', role: 'member', mgr: H.S.people.find(p => p.name === 'Tunde Bakare').id}));
@@ -764,4 +769,33 @@ test('subsidiaries in use stay in the list when older settings never saved one',
   assert.deepEqual(o3.S.cfg.subs, ['North', 'South']);
   assert.deepEqual(JSON.parse(d3.prepare("SELECT data FROM docs WHERE col = 'cfg'").get().data).subs, ['North', 'South']);
   o3.close();
+});
+
+// ---------- every subsidiary gets a colour (TPD-1891) ----------
+test('every subsidiary has its own colour, kept through a rename, and can be changed', async () => {
+  const c = () => JSON.parse(JSON.stringify(S.cfg));
+  const from = x => ({subs: [...x.subs], leave: x.leave.map(l => l.type), etypes: x.etypes, closeWhy: x.closeWhy, onbWho: x.onbWho});
+  // Renamed earlier from NativeTalk, it kept its colour; the others were given free ones in order.
+  assert.deepEqual(S.cfg.subTone, {'NativeTalk Ltd': 'sky', Connect: 'tea', 'Cyber Villa': 'vio'});
+  // A new one gets a colour nobody has yet.
+  let x = c();
+  await ok(act(ceo, 'cfg.save', {cfg: {...x, subs: [...x.subs, 'Delta Labs'], subTones: [...x.subs.map(n => x.subTone[n]), '']}, from: {...from(x), subs: [...x.subs, null]}}));
+  assert.equal(S.cfg.subTone['Delta Labs'], 'amb');
+  // HR picks a colour; an unknown colour is ignored.
+  x = c();
+  await ok(act(hr, 'cfg.save', {cfg: {...x, subTones: x.subs.map(n => n === 'Connect' ? 'ros' : n === 'Delta Labs' ? 'neon' : x.subTone[n])}, from: from(x)}));
+  assert.equal(S.cfg.subTone.Connect, 'ros'); assert.equal(S.cfg.subTone['Delta Labs'], 'amb');
+  // Removed, it takes its colour with it.
+  x = c();
+  await ok(act(hr, 'cfg.save', {cfg: {...x, subs: x.subs.filter(n => n !== 'Delta Labs')}, from: {...from(x), subs: x.subs.filter(n => n !== 'Delta Labs')}}));
+  assert.equal(S.cfg.subTone['Delta Labs'], undefined);
+  assert.equal((await state(ana)).cfg.subTone.Connect, 'ros');
+});
+
+test('organizations from before get colours: the first three keep theirs, others get free ones', () => {
+  const d4 = openDb(':memory:');
+  d4.prepare('INSERT INTO docs (col, id, data) VALUES (?, ?, ?)').run('cfg', 'cfg', JSON.stringify({id: 'cfg', subs: ['Alpha', 'Connect', 'NativeTalk']}));
+  const o4 = createOrg({id: 'old4', name: 'Old Four', db: d4, log: {error() {}}});
+  assert.deepEqual(o4.S.cfg.subTone, {Connect: 'tea', NativeTalk: 'sky', Alpha: 'vio'});
+  o4.close();
 });
