@@ -23,8 +23,8 @@ export async function checkPassword(password, stored) {
 // Spends the same time as a real check, so a missing account can't be told apart by timing.
 export const DUMMY_HASH = 'scrypt$AAAAAAAAAAAAAAAAAAAAAA==$' + Buffer.alloc(64).toString('base64');
 
-const newToken = () => crypto.randomBytes(32).toString('base64url');
-const sha = t => crypto.createHash('sha256').update(String(t)).digest('hex');
+export const newToken = () => crypto.randomBytes(32).toString('base64url');
+export const sha = t => crypto.createHash('sha256').update(String(t)).digest('hex');
 
 // ---------- sessions (only a hash of the token is stored) ----------
 export function createSession(db, userId) {

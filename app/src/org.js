@@ -102,6 +102,7 @@ export function createOrg({id, db, filesDir = '', transport = null, baseUrl = ()
   function who(req, token) {
     const account = A.sessionUser(db, token);
     if (!account) return {account: null};
+    registry.active?.();
     const real = S.people.find(p => p.uid === String(account.id)) || null;
     let e = real;
     const va = String(req.headers['x-view-as'] || '');
@@ -258,8 +259,31 @@ export function createOrg({id, db, filesDir = '', transport = null, baseUrl = ()
     }],
   ];
 
+  // ---------- the CEO, for the platform page (TPD-1889) ----------
+  // One still to choose a password first, otherwise the first CEO.
+  const ceo = () => { const all = S.people.filter(p => p.role === 'ceo'); return all.find(p => !p.uid) || all[0] || null; };
+  // The CEO's link, emailed and returned: an invite (14 days) until she has chosen a password, then a reset link (24 hours).
+  function ceoLink(base, orgName) {
+    const p = ceo();
+    if (!p) throw new Refusal('This organization has no CEO in its directory.');
+    if (!EMAIL_RE.test(p.email || '')) throw new Refusal(`${p.name} has no email address on their record.`);
+    const emailed = !!transport;
+    if (p.uid) {
+      const url = resetLink(base, Number(p.uid));
+      change(() => mailer.notify('reset', [p.name], {subject: 'Reset your Team OKR Tracker password', tab: null, key: `ceoReset:${p.id}:${now()}`,
+        text: `Here is a link to choose a new password for ${orgName} on Team OKR Tracker. It works once, within 24 hours:\n${url}\n\nIf you did not ask for this, you can ignore it; your current password still works.`}));
+      return {url, kind: 'reset', emailed, to: p.email, name: p.name};
+    }
+    const url = inviteLink(base, p.id);
+    change(() => mailer.notify('invite', [p.name], {subject: `${orgName} is ready on Team OKR Tracker`, tab: null, key: `ceoInvite:${p.id}:${now()}`,
+      text: `${orgName} now has its own Team OKR Tracker, and you are its CEO. Use this link to choose your password and sign in. It works once, within 14 days:\n${url}\n\nOnce you are in, add your people in the Directory, set who reports to whom, and send them their invites. You will sign in with this email address.`}));
+    return {url, kind: 'invite', emailed, to: p.email, name: p.name};
+  }
+
   return {
-    id, db, M, S, store, mailer, clients, hasCeo, setupLink, resetLink, startSession, emails,
+    id, db, M, S, store, mailer, clients, hasCeo, setupLink, resetLink, startSession, emails, ceo, ceoLink,
+    // Closes every open page's live-update stream, so a paused organization's pages stop at once.
+    dropClients() { for (const res of clients) res.end(); clients.clear(); },
     // The account for a sign-in, if this organization has one with that email.
     login: em => db.prepare('SELECT id, pass_hash FROM users WHERE email = ?').get(em) || null,
     endSession: token => A.endSession(db, token),

@@ -4,6 +4,7 @@
 //   npm run org-create -- "<name>"         add an empty organization and print its CEO setup link
 //   npm run setup-link [-- <org-id>]       print a link to create an organization's CEO account (only while it has none)
 //   npm run reset-link -- <email>          print a password-reset link for that account
+//   npm run platform-owner -- <email> [name]  print a link for one of us to choose a password for the platform page (/platform)
 //   npm run backup                         write a consistent copy of every organization's database, and the platform's
 // Settings come from environment variables; see README.md.
 import fs from 'node:fs';
@@ -63,6 +64,12 @@ if (cmd) {
     if (!u) die(`No account with the email "${args[0] || ''}".`);
     console.log(`Password reset link for ${em} in ${row.name} (valid 24 hours):\n${o.resetLink(BASE, u.id)}`);
     o.close();
+  } else if (cmd === 'platform-owner') {
+    // Our own account for the platform page (/platform), separate from every organization's accounts.
+    const [email, ...name] = args;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || ''))) die('Give the owner\'s email: npm run platform-owner -- you@yourcompany.com "Your Name"');
+    const {token, existed} = P.owners.link(email, name.join(' '));
+    console.log(`${existed ? 'Password reset link' : 'Link to choose a password'} for ${email.toLowerCase()} on the platform page (valid 24 hours):\n${BASE}/platform/setup?token=${token}`);
   } else if (cmd === 'backup') {
     // Consistent copies, safe to take while the server is running: each organization's into its own backups folder.
     for (const r of orgs) {
@@ -72,7 +79,7 @@ if (cmd) {
       console.log(`${r.name}: ${file}`);
     }
     console.log(`Platform: ${P.backup()}`);
-  } else die(`Unknown command "${cmd}". Use orgs, org-create <name>, setup-link [org-id], reset-link <email> or backup.`);
+  } else die(`Unknown command "${cmd}". Use orgs, org-create <name>, setup-link [org-id], reset-link <email>, platform-owner <email> [name] or backup.`);
   P.close();
   process.exit(0);
 }
